@@ -73,6 +73,17 @@ python examples/m0_spatial_field.py   # allele-frequency (beta-binomial)
 python examples/run_negbinomial.py    # abundance counts (negative-binomial)
 ```
 
+## Documentation
+
+Full documentation (biological background + technical implementation + API
+reference) is built with Sphinx/MyST and is ReadTheDocs-ready:
+
+```bash
+pip install -e ".[docs]"
+sphinx-build -b html docs docs/_build/html   # or: cd docs && make html
+open docs/_build/html/index.html
+```
+
 ## Develop
 
 ```bash
