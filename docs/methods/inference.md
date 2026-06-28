@@ -1,0 +1,101 @@
+# Inference
+
+MESH does fully Bayesian inference with the No-U-Turn Sampler (NUTS) via
+[NumPyro](https://num.pyro.ai/) on [JAX](https://jax.dev/). The runner is
+{func}`mesh.fit_model`; it returns an [ArviZ](https://python.arviz.org/)
+`InferenceData` so the full diagnostic ecosystem is available.
+
+## Running a model
+
+```python
+from mesh import fit_model, spatial_negbinomial, counts_arrays, simulate_counts
+
+arrays = counts_arrays(simulate_counts(n_samples=150, range_=200.0, seed=0).table)
+idata = fit_model(
+    spatial_negbinomial,
+    num_warmup=500,
+    num_samples=500,
+    num_chains=2,
+    chain_method="vectorized",
+    target_accept_prob=0.9,
+    seed=0,
+    **arrays,
+)
+```
+
+Key arguments:
+
+- **`num_warmup` / `num_samples`** — NUTS adaptation and sampling lengths. The
+  recovery tests use 400/400; 500–1000 each is a reasonable default for real
+  fits.
+- **`num_chains` / `chain_method`** — run ≥ 2 chains to obtain a meaningful
+  $\hat R$. The default `chain_method="vectorized"` runs chains with a single
+  `vmap` on one device, which is efficient for exact-GP models on CPU.
+- **`target_accept_prob`** — raising it (e.g. 0.95) shrinks the step size and
+  reduces divergences in awkward GP geometries, at some cost in speed.
+- **`seed`** — PRNG seed for reproducibility.
+
+## Why exact GPs here
+
+At MESH's scale (a few hundred to ~2k locations) the dense Matérn covariance and
+its Cholesky factor are inexpensive, and exactness keeps the range estimate
+faithful. MESH deliberately avoids SPDE, sparse, inducing-point and variational
+approximations: they trade accuracy for a scalability the target datasets do not
+require, and they can distort the very quantity — the range — that MESH reports.
+
+The per-iteration cost is dominated by one $O(n^3)$ Cholesky of the $n \times n$
+covariance. For $n$ in the hundreds this is milliseconds; the practical runtime
+is set by the number of leapfrog steps and JAX compilation, not by linear
+algebra.
+
+## Diagnostics to check
+
+Treat these as gates before trusting a patch-size estimate:
+
+```{list-table}
+:header-rows: 1
+:widths: 22 78
+
+* - Diagnostic
+  - What to look for
+* - **Divergences**
+  - Should be zero (or a handful). Divergences flag a geometry the sampler could
+    not explore; the non-centered parameterization is the first mitigation,
+    raising `target_accept_prob` the second.
+* - **$\hat R$ (R-hat)**
+  - Close to 1.0 (e.g. < 1.01) for `range` and `eta`. Requires ≥ 2 chains.
+    {func}`mesh.summarize_range` reports it per parameter.
+* - **Effective sample size (ESS)**
+  - Comfortably in the hundreds for the parameters you report. Low ESS means the
+    interval is noisy — sample longer.
+* - **Posterior predictive sense**
+  - The recovered range should be consistent with the sampling resolution and
+    domain extent (see [spatial scales](../biology/spatial-scales.md)).
+```
+
+Because `idata` is a standard `InferenceData`, you can use ArviZ directly:
+
+```python
+import arviz as az
+az.summary(idata, var_names=["range", "eta"])
+az.plot_trace(idata, var_names=["range"])
+print("divergences:", int(idata.sample_stats["diverging"].sum()))
+```
+
+## Non-centered parameterization in practice
+
+The field is sampled as standard-normal innovations `f_z` and transformed to the
+deterministic site `f` (see [the model](model.md)). This decouples the field from
+$\ell$ and $\eta$ and is what keeps NUTS efficient. If you adapt the models and
+see divergences return, restoring or strengthening this reparameterization is the
+first thing to check.
+
+## Reproducibility notes
+
+- Inference is seeded through `seed`; simulation generators take their own
+  `seed`, so an end-to-end run (simulate → fit) is fully reproducible.
+- The runner passes empty `dims`/`pred_dims` to ArviZ's NumPyro converter to skip
+  its automatic dimension inference, which re-traces the model and is brittle
+  across NumPyro/ArviZ versions. All latent sites here are 1-D vectors, so no
+  dimension labels are lost.
+```
