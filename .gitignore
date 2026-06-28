@@ -15,5 +15,9 @@ venv/
 .ruff_cache/
 .ipynb_checkpoints/
 
+# Sphinx documentation
+docs/_build/
+docs/api/_autosummary/
+
 # JAX / OS
 .DS_Store
