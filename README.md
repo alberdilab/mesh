@@ -66,11 +66,28 @@ idata = fit_model(spatial_negbinomial, num_warmup=500, num_samples=500, **arrays
 print(summarize_range(idata))   # patch size + 95% credible interval
 ```
 
+### Plotting
+
+`mesh.plots` visualises the key inputs and outputs — the input sampling map,
+the headline patch-size posterior, the inferred latent field, and the Matérn
+correlation decay implied by the range:
+
+```python
+from mesh import plot_samples, plot_range_posterior, plot_field
+from mesh import plot_matern_correlation, posterior_field_mean
+
+plot_samples(sim.table, value="count")        # input: observed signal over space
+plot_range_posterior(idata, truth=200.0)       # output: patch size + HDI
+plot_field(sim.coords, posterior_field_mean(idata))  # inferred latent field
+plot_matern_correlation(idata)                 # what the range means
+```
+
 Runnable demos:
 
 ```bash
 python examples/m0_spatial_field.py   # allele-frequency (beta-binomial)
 python examples/run_negbinomial.py    # abundance counts (negative-binomial)
+python examples/plot_negbinomial.py   # 2x2 panel of inputs & outputs -> PNG
 ```
 
 ## Documentation

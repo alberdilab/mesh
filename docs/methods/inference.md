@@ -30,10 +30,80 @@ Key arguments:
   fits.
 - **`num_chains` / `chain_method`** — run ≥ 2 chains to obtain a meaningful
   $\hat R$. The default `chain_method="vectorized"` runs chains with a single
-  `vmap` on one device, which is efficient for exact-GP models on CPU.
+  `vmap` on one device, which is efficient for exact-GP models on CPU. To run
+  chains on separate cores instead, use `chain_method="parallel"` — but this
+  needs one device per chain (see [running chains in parallel](#running-chains-in-parallel)).
 - **`target_accept_prob`** — raising it (e.g. 0.95) shrinks the step size and
   reduces divergences in awkward GP geometries, at some cost in speed.
 - **`seed`** — PRNG seed for reproducibility.
+
+## Running chains in parallel
+
+The three `chain_method` options differ only in *how* chains are mapped onto
+hardware — the sampling is identical:
+
+```{list-table}
+:header-rows: 1
+:widths: 18 22 60
+
+* - Method
+  - Devices used
+  - When to use it
+* - `"vectorized"` *(default)*
+  - 1 (batched `vmap`)
+  - Single CPU or single GPU. Normally the **fastest** option here, and needs no
+    setup.
+* - `"parallel"`
+  - One per chain
+  - You genuinely have several devices (multi-GPU node, HPC allocation, or CPU
+    cores exposed as devices — see below).
+* - `"sequential"`
+  - 1 (one chain at a time)
+  - Memory-constrained runs or debugging; slowest.
+```
+
+On a single CPU, `"vectorized"` is the right default and you can stop here. If
+you specifically want chains on **separate cores**, JAX exposes only **one** CPU
+device by default, so `"parallel"` silently falls back to sequential and warns:
+
+```text
+UserWarning: There are not enough devices to run parallel chains: expected 2 but got 1.
+```
+
+To expose more devices you must call `numpyro.set_host_device_count(n)` **before
+JAX initializes its backend** — JAX reads the device count only once, on first
+use. The bulletproof pattern is to make it the *very first* thing your program
+does, before importing `mesh` (which imports JAX):
+
+```python
+import numpyro
+numpyro.set_host_device_count(2)   # MUST come before any JAX work
+
+from mesh import fit_model, spatial_negbinomial, counts_arrays, simulate_counts
+import jax
+print(jax.local_device_count())    # -> 2
+
+arrays = counts_arrays(simulate_counts(n_samples=150, range_=200.0, seed=0).table)
+idata = fit_model(
+    spatial_negbinomial,
+    num_warmup=500, num_samples=500,
+    num_chains=2,
+    chain_method="parallel",       # now runs on 2 separate CPU devices
+    seed=0, **arrays,
+)
+```
+
+:::{admonition} Common gotcha
+:class: warning
+
+If `jax.local_device_count()` still prints `1` after calling
+`set_host_device_count`, the JAX backend was **already initialized** earlier in
+the session (e.g. a previous `fit_model` run). Restart the interpreter and make
+the call the first line. On Apple Silicon, also check `jax.devices()`: if it
+shows a `METAL` device you have `jax-metal` installed, and the host-device flag
+only multiplies **CPU** devices — set `os.environ["JAX_PLATFORMS"] = "cpu"`
+first.
+:::
 
 ## Why exact GPs here
 

@@ -16,6 +16,10 @@ reproducible, each one **simulates** a table with a *known* patch size using
 {mod}`mesh.simulate`, then recovers it. With real data you would replace the
 `simulate_*` call with `pd.read_parquet(...)` and {func}`mesh.validate_table`;
 everything downstream is identical.
+
+The figures embedded below are produced by the exact code shown on each page;
+regenerate them with `python examples/plot_cases.py` (writes into
+`docs/_static/cases/`).
 :::
 
 ## The two cases

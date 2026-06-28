@@ -64,7 +64,42 @@ idata = fit_model(
 print(summarize_range(idata))
 ```
 
+The same four views as [Case 1](functional-patch.md), but the input map now
+shows the **alt-allele frequency** (`count / depth`) rather than a raw count:
+
+```python
+import matplotlib.pyplot as plt
+from mesh import (
+    plot_samples, plot_range_posterior, plot_field,
+    plot_matern_correlation, posterior_field_mean,
+)
+
+fig, axes = plt.subplots(2, 2, figsize=(11, 9))
+plot_samples(
+    df, value="count", as_frequency=True, cmap="magma",
+    ax=axes[0, 0], title="Input: alt-allele frequency",
+)
+plot_range_posterior(idata, truth=300.0, ax=axes[0, 1])
+plot_field(
+    sim.coords, posterior_field_mean(idata),
+    ax=axes[1, 0], title="Inferred frequency field",
+)
+plot_matern_correlation(idata, ax=axes[1, 1])
+fig.tight_layout()
+```
+
 ## The answer
+
+```{figure} ../_static/cases/strain-territory.png
+:alt: Four-panel figure of the strain-territory fit.
+:width: 100%
+
+The fit at a glance. **Top-left:** the observed alt-allele frequency over the
+1.5 mm field. **Top-right:** the territory-size posterior — wider than Case 1's,
+the honest cost of variable coverage. **Bottom-left:** the reconstructed logit
+frequency field. **Bottom-right:** the implied spatial correlation decay.
+```
+
 
 ```text
  parameter   mean  median    sd  hdi_low  hdi_high  hdi_prob  r_hat  ess_bulk
@@ -83,6 +118,35 @@ print(summarize_range(idata))
   proportionally less, so the territory size reflects confident allele calls
   rather than thin, noisy ones.
 
+## Function meets genotype — today
+
+You do not have to wait for coregionalization to put the two cases together.
+With both fits in hand, {func}`mesh.plot_scale_comparison` overlays the
+function's patch ([Case 1](functional-patch.md)) and the strain's territory on a
+single axis, so you compare **credible intervals, not point estimates**:
+
+```python
+from mesh import plot_scale_comparison
+
+plot_scale_comparison(
+    [idata_function, idata_genotype],          # the two fits from each case
+    labels=["function patch (Case 1)", "strain territory (Case 2)"],
+)
+```
+
+```{figure} ../_static/cases/function-vs-genotype.png
+:alt: Two overlaid range posteriors — function patch versus strain territory.
+:width: 80%
+:align: center
+
+The function organises at a *finer* scale (≈ 175 µm) than the strain territory
+(≈ 311 µm), though the intervals overlap. A function patch that is wider than any
+single strain's territory would imply the function is shared across genotypes;
+here the genotype's reach is the broader of the two. (Different simulated
+systems — illustrative of the comparison, not a claim that these two features
+co-occur.)
+```
+
 ## How this case grows with MESH
 
 Today this resolves **one** variant site at **one** scale. The same variant
@@ -94,9 +158,10 @@ dataset will support more as MESH expands:
 - [ ] **Residence covariate** — annotate each variant by the contig / mobile
       element it sits on and ask whether territory size is set by the genomic
       context (a future *linkage* covariate, not a modelling unit).
-- [ ] **Function meets genotype** — analyse the abundance of a function
-      ([Case 1](functional-patch.md)) and the genotype carrying it on shared
-      fields, asking whether they segregate at the same scale.
+- [x] **Function meets genotype (scale)** — *available now*: compare a function's
+      patch and a genotype's territory by overlaying their ranges (above). The
+      next step puts them on **shared fields** so co-segregation is inferred
+      jointly rather than compared after the fact.
 - [ ] **Across hosts** — compare strain-territory sizes between individuals.
 - [ ] **3D** — territories as volumes.
 

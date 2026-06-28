@@ -47,7 +47,10 @@ def fit_model(
         NUTS sampling configuration.
     chain_method : str
         How to run multiple chains: ``"vectorized"`` (default; vmap over chains,
-        single device), ``"sequential"`` or ``"parallel"``.
+        single device), ``"sequential"`` or ``"parallel"``. ``"parallel"`` needs
+        one device per chain; on CPU, call ``numpyro.set_host_device_count(n)``
+        *before* JAX initializes (i.e. before importing this module), otherwise
+        it falls back to sequential with a warning.
     seed : int
         PRNG seed.
     target_accept_prob : float

@@ -22,6 +22,8 @@ fit_model`).
   - NUTS runner, range-posterior helper, table→arrays converters.
 * - {doc}`summaries`
   - Patch-size (range) summaries with credible intervals.
+* - {doc}`plots`
+  - Plots of the key inputs and outputs (samples, range posterior, field, correlation decay).
 ```
 
 ```{toctree}
@@ -33,4 +35,5 @@ model
 schema
 fit
 summaries
+plots
 ```

@@ -19,5 +19,8 @@ venv/
 docs/_build/
 docs/api/_autosummary/
 
+# Generated example figures
+examples/*.png
+
 # JAX / OS
 .DS_Store

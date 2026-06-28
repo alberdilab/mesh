@@ -45,6 +45,14 @@ meet **only** through the documented [input schema](methods/schema.md).
 Install MESH and recover a known patch size from simulated data in a few lines.
 :::
 
+:::{grid-item-card} {octicon}`mortar-board` Step-by-step guide
+:link: guide/index
+:link-type: doc
+
+New to this? A teaching path from data to results that explains *why* at every
+step — no statistics or spatial-ecology background assumed.
+:::
+
 :::{grid-item-card} {octicon}`beaker` The biology
 :link: biology/index
 :link-type: doc
@@ -84,6 +92,13 @@ Module-by-module reference generated from the source docstrings.
 
 getting-started/installation
 getting-started/quickstart
+```
+
+```{toctree}
+:hidden:
+:caption: Step-by-step guide
+
+guide/index
 ```
 
 ```{toctree}

@@ -7,6 +7,26 @@ prints the recovered patch size with a credible interval.
 Run::
 
     python examples/run_negbinomial.py
+
+Parallel chains
+---------------
+This script uses the default ``chain_method="vectorized"``, which runs all
+chains in one ``vmap`` on a single device -- the fastest option on a laptop CPU.
+
+To run the chains on *separate* CPU cores instead, JAX must be told to expose
+more than one host device, and that call has to happen **before JAX initializes
+its backend** (i.e. before importing ``mesh``/``jax`` or running any JAX op)::
+
+    import numpyro
+    numpyro.set_host_device_count(2)   # FIRST, before the imports below
+
+    from mesh.fit import counts_arrays, fit_model
+    ...
+    idata = fit_model(..., num_chains=2, chain_method="parallel", **arrays)
+
+If ``jax.local_device_count()`` still prints ``1`` afterwards, the backend was
+already initialized earlier in the session -- restart the interpreter and make
+``set_host_device_count`` the very first line.
 """
 
 from __future__ import annotations

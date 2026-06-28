@@ -62,7 +62,41 @@ idata = fit_model(
 print(summarize_range(idata))
 ```
 
+The four standard views make the fit interpretable at a glance — the input, the
+headline posterior, the reconstructed field, and what the range *means*:
+
+```python
+import matplotlib.pyplot as plt
+from mesh import (
+    plot_samples, plot_range_posterior, plot_field,
+    plot_matern_correlation, posterior_field_mean,
+)
+
+fig, axes = plt.subplots(2, 2, figsize=(11, 9))
+plot_samples(df, value="count", ax=axes[0, 0], title="Input: gene counts")
+plot_range_posterior(idata, truth=150.0, ax=axes[0, 1])
+plot_field(
+    sim.coords, posterior_field_mean(idata),
+    ax=axes[1, 0], title="Inferred functional field",
+)
+plot_matern_correlation(idata, ax=axes[1, 1])
+fig.tight_layout()
+```
+
 ## The answer
+
+```{figure} ../_static/cases/functional-patch.png
+:alt: Four-panel figure of the functional-patch fit.
+:width: 100%
+
+The fit at a glance. **Top-left:** the input counts over the 1 mm field.
+**Top-right:** the patch-size posterior — the 95% interval brackets the
+simulated truth (150 µm). **Bottom-left:** MESH's reconstruction of the hidden
+functional field; it should look like a smoothed version of the input.
+**Bottom-right:** the spatial correlation the range implies, with range
+uncertainty as a band.
+```
+
 
 ```text
  parameter   mean  median    sd  hdi_low  hdi_high  hdi_prob  r_hat  ess_bulk
