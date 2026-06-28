@@ -61,6 +61,14 @@ The Matérn Gaussian-process model, coverage-aware likelihoods, and how
 inference is done.
 :::
 
+:::{grid-item-card} {octicon}`beaker` Case studies
+:link: cases/index
+:link-type: doc
+
+Two worked, biology-driven cases — a functional patch and a strain's territory —
+that grow as MESH gains capabilities.
+:::
+
 :::{grid-item-card} {octicon}`code` API reference
 :link: api/index
 :link-type: doc
@@ -90,6 +98,13 @@ biology/index
 :caption: Methods & implementation
 
 methods/index
+```
+
+```{toctree}
+:hidden:
+:caption: Case studies
+
+cases/index
 ```
 
 ```{toctree}
