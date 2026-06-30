@@ -24,7 +24,7 @@ import numpyro
 import numpyro.distributions as dist
 from jax import Array
 
-from .kernels import matern_kernel
+from .kernels import matern_kernel, pairwise_distances
 
 __all__ = [
     "gp_field",
@@ -226,9 +226,13 @@ def coregionalized_negbinomial(
     The ranges are sampled **ordered** (``range[0] < range[1] < ...``). Ordering
     pins field identity -- it removes the label-switching between fields that
     would otherwise make ``range`` and the loading columns exchangeable -- so the
-    posterior assigns each feature to a *specific* scale. Per-field sign
-    (flipping ``f_k`` and column ``k`` of ``W`` together) is left free; it does
-    not affect the ranges or which features share a field (compare ``|W|``).
+    posterior assigns each feature to a *specific* scale. Each range is also
+    softly **bounded at the spatial extent** of the samples: a range beyond the
+    farthest pair of points is unidentifiable (the field flattens to a constant
+    the intercepts absorb), a runaway basin the ordered-largest field would
+    otherwise drift into. Per-field sign (flipping ``f_k`` and column ``k`` of
+    ``W`` together) is left free; it does not affect the ranges or which features
+    share a field (compare ``|W|``).
 
     Parameters
     ----------
@@ -264,6 +268,17 @@ def coregionalized_negbinomial(
         ),
     )
     range_ = numpyro.deterministic("range", jnp.exp(log_range))
+
+    # Bound each range at the spatial extent of the samples. A range beyond the
+    # farthest pair of points is unidentifiable -- the Matern correlation has not
+    # decayed there, so the field degenerates into a near-constant the per-feature
+    # intercepts absorb. That "runaway" mode is a second basin the ordered-largest
+    # field can fall into (sending its range to the prior edge and collapsing the
+    # feature assignment); penalising the log-overshoot beyond the extent removes
+    # it without distorting the prior for ranges below the extent.
+    extent = jnp.max(pairwise_distances(coords))
+    log_overshoot = jnp.clip(jnp.log(range_) - jnp.log(extent), min=0.0)
+    numpyro.factor("range_extent", -0.5 * jnp.sum((log_overshoot / 0.1) ** 2))
 
     # Loadings carry the per-field amplitude (fields are unit-variance).
     loadings = numpyro.sample(
