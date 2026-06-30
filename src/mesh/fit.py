@@ -6,8 +6,9 @@ Also provides helpers that turn a validated single-feature table (see
 
 from __future__ import annotations
 
+import math
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import arviz as az
@@ -18,6 +19,7 @@ import pandas as pd
 from numpyro.infer import MCMC, NUTS
 
 from . import schema as _schema
+from .kernels import MATERN_NU
 
 __all__ = [
     "fit_model",
@@ -27,6 +29,8 @@ __all__ = [
     "allele_arrays",
     "coregion_counts_arrays",
     "coregion_feature_order",
+    "nu_label",
+    "compare_smoothness",
 ]
 
 
@@ -116,6 +120,7 @@ def fit_model(
     seed: int = 0,
     target_accept_prob: float = 0.9,
     progress_bar: bool = False,
+    log_likelihood: bool = False,
     **model_kwargs: Any,
 ) -> az.InferenceData:
     """Run NUTS on a MESH model and return an ArviZ ``InferenceData``.
@@ -141,6 +146,10 @@ def fit_model(
         awkward GP geometries.
     progress_bar : bool
         Whether to display the sampling progress bar.
+    log_likelihood : bool
+        Whether to store the pointwise ``log_likelihood`` group. Needed for
+        LOO/WAIC model comparison (e.g. :func:`compare_smoothness`); off by
+        default to keep fits lean.
     **model_kwargs
         Passed through to ``model`` (e.g. ``coords``, ``counts``, ``log_offset``).
 
@@ -163,7 +172,14 @@ def fit_model(
     # Pass empty dims/pred_dims to skip arviz's automatic dimension inference,
     # which re-traces the model and is brittle across numpyro/arviz versions
     # (and unnecessary here -- all our latent sites are 1D vectors).
-    return az.from_numpyro(mcmc, dims={}, pred_dims={})
+    idata = az.from_numpyro(
+        mcmc, dims={}, pred_dims={}, log_likelihood=log_likelihood
+    )
+    if log_likelihood:
+        # az.from_numpyro keeps the arrays JAX-backed; arviz-stats' LOO does
+        # in-place writes that fail on immutable JAX arrays, so coerce to NumPy.
+        idata = idata.map_over_datasets(lambda ds: ds.map(np.asarray))
+    return idata
 
 
 def get_range_posterior(idata: az.InferenceData, var_name: str = "range") -> np.ndarray:
@@ -287,3 +303,103 @@ def coregion_feature_order(df: pd.DataFrame) -> list[str]:
     posterior loading row back to its feature.
     """
     return sorted(df["feature_id"].unique())
+
+
+def nu_label(nu: float) -> str:
+    """Return a short, stable label for a Matern smoothness ``nu``.
+
+    Used as the model key in :func:`compare_smoothness`. ``0.5`` -> ``"matern12"``,
+    ``1.5`` -> ``"matern32"``, ``2.5`` -> ``"matern52"`` and ``math.inf`` ->
+    ``"se"`` (squared-exponential).
+    """
+    if nu == math.inf:
+        return "se"
+    if nu == 0.5:
+        return "matern12"
+    if nu == 1.5:
+        return "matern32"
+    if nu == 2.5:
+        return "matern52"
+    raise ValueError(
+        f"nu={nu!r} has no closed-form kernel; choose one of {MATERN_NU}."
+    )
+
+
+def compare_smoothness(
+    model: Callable[..., Any],
+    *,
+    nu_values: Sequence[float] = MATERN_NU,
+    num_warmup: int = 500,
+    num_samples: int = 500,
+    num_chains: int = 2,
+    seed: int = 0,
+    target_accept_prob: float = 0.95,
+    progress_bar: bool = False,
+    **model_kwargs: Any,
+) -> tuple[pd.DataFrame, dict[str, az.InferenceData]]:
+    r"""Compare Matern smoothnesses (boundary sharpness) by LOO cross-validation.
+
+    Fits the **same data** under each fixed smoothness ``nu`` in ``nu_values``
+    and ranks the fits with leave-one-out cross-validation (:func:`arviz.compare`,
+    PSIS-LOO). This is the *boundary sharpness* readout: the winning ``nu`` says
+    whether the patches have crisp edges (small ``nu`` -- competitive exclusion or
+    a physical/biofilm barrier) or fade as gradients (large ``nu`` -- a
+    diffusion-limited gradient of O2, pH or nutrients).
+
+    Each fit fixes its own ``nu``, so the latent field stays unambiguous (no
+    discrete latent marginalised inside a single chain). ``model`` must accept a
+    ``nu`` keyword (the single-field models :func:`mesh.spatial_negbinomial` and
+    :func:`mesh.spatial_betabinomial` do).
+
+    Parameters
+    ----------
+    model : callable
+        A single-field NumPyro model taking a ``nu`` keyword.
+    nu_values : sequence of float, optional
+        Smoothnesses to compare; defaults to the full closed-form family
+        :data:`mesh.kernels.MATERN_NU` (``0.5, 1.5, 2.5, inf``).
+    num_warmup, num_samples, num_chains : int
+        NUTS configuration for every fit. ``num_chains`` defaults to 2 so the
+        comparison comes with convergence diagnostics.
+    seed : int
+        Base PRNG seed (shared across fits, so they differ only by ``nu``).
+    target_accept_prob : float
+        NUTS target acceptance; defaults to ``0.95`` (the GP geometry, and the
+        ill-conditioned very-smooth kernels, want a careful sampler).
+    progress_bar : bool
+        Whether to show each fit's progress bar.
+    **model_kwargs
+        Passed through to ``model`` (e.g. ``coords``, ``counts``,
+        ``log_offset``). A ``nu`` here is overridden per fit.
+
+    Returns
+    -------
+    comparison : pandas.DataFrame
+        :func:`arviz.compare` table, best model first (``rank == 0``), indexed by
+        :func:`nu_label`, with an added ``nu`` column. The index of the top row
+        is the preferred smoothness.
+    idatas : dict of str to arviz.InferenceData
+        The per-``nu`` fits (keyed by :func:`nu_label`), each carrying its
+        ``log_likelihood`` group.
+    """
+    model_kwargs.pop("nu", None)
+    idatas: dict[str, az.InferenceData] = {}
+    labels: dict[str, float] = {}
+    for nu in nu_values:
+        label = nu_label(nu)
+        labels[label] = nu
+        idatas[label] = fit_model(
+            model,
+            num_warmup=num_warmup,
+            num_samples=num_samples,
+            num_chains=num_chains,
+            seed=seed,
+            target_accept_prob=target_accept_prob,
+            progress_bar=progress_bar,
+            log_likelihood=True,
+            nu=nu,
+            **model_kwargs,
+        )
+    comparison = az.compare(idatas)
+    comparison["nu"] = [labels[name] for name in comparison.index]
+    return comparison, idatas

@@ -24,7 +24,7 @@ import numpyro
 import numpyro.distributions as dist
 from jax import Array
 
-from .kernels import matern32_kernel
+from .kernels import matern_kernel
 
 __all__ = [
     "gp_field",
@@ -49,9 +49,10 @@ def gp_field(
     coords: Array,
     lengthscale: Array,
     eta: Array,
+    nu: float = 1.5,
     jitter: float = 1e-6,
 ) -> Array:
-    """Sample a non-centred Matern 3/2 GP field.
+    """Sample a non-centred Matern GP field at smoothness ``nu``.
 
     Draws standard-normal innovations ``z`` and returns ``eta * (L @ z)`` where
     ``L`` is the Cholesky factor of the unit-variance Matern correlation matrix.
@@ -68,6 +69,9 @@ def gp_field(
         Matern range (patch size).
     eta : Array
         Field standard deviation.
+    nu : float, optional
+        Matern smoothness (boundary sharpness), one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``.
     jitter : float, optional
         Diagonal jitter for Cholesky stability.
 
@@ -77,7 +81,7 @@ def gp_field(
         Field values with shape ``(n,)``.
     """
     n = coords.shape[0]
-    k = matern32_kernel(coords, lengthscale, variance=1.0, jitter=jitter)
+    k = matern_kernel(coords, lengthscale, nu=nu, variance=1.0, jitter=jitter)
     chol = jnp.linalg.cholesky(k)
     z = numpyro.sample(f"{name}_z", dist.Normal(0.0, 1.0).expand([n]).to_event(1))
     f = eta * (chol @ z)
@@ -91,6 +95,7 @@ def spatial_betabinomial(
     *,
     range_prior: tuple[float, float] = DEFAULT_RANGE_PRIOR,
     eta_scale: float = 1.0,
+    nu: float = 1.5,
     jitter: float = 1e-6,
 ) -> None:
     """Coverage-aware spatial allele-frequency model (beta-binomial).
@@ -111,6 +116,10 @@ def spatial_betabinomial(
         ``(loc, scale)`` of the LogNormal range prior, in log-microns.
     eta_scale : float, optional
         Scale of the ``HalfNormal`` prior on the field standard deviation.
+    nu : float, optional
+        Matern smoothness (boundary sharpness) of the field, one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``. Fix it per fit and
+        model-compare across values (see :func:`mesh.compare_smoothness`).
     jitter : float, optional
         Diagonal jitter for Cholesky stability.
     """
@@ -119,7 +128,7 @@ def spatial_betabinomial(
     intercept = numpyro.sample("intercept", dist.Normal(0.0, 3.0))
     precision = numpyro.sample("precision", dist.HalfNormal(100.0))
 
-    f = gp_field("f", coords, range_, eta, jitter=jitter)
+    f = gp_field("f", coords, range_, eta, nu=nu, jitter=jitter)
     p = _sigmoid(intercept + f)
 
     conc1 = p * precision
@@ -138,6 +147,7 @@ def spatial_negbinomial(
     *,
     range_prior: tuple[float, float] = DEFAULT_RANGE_PRIOR,
     eta_scale: float = 1.0,
+    nu: float = 1.5,
     jitter: float = 1e-6,
 ) -> None:
     """Spatial abundance-count model with a depth offset (negative-binomial).
@@ -159,6 +169,11 @@ def spatial_negbinomial(
         ``(loc, scale)`` of the LogNormal range prior, in log-microns.
     eta_scale : float, optional
         Scale of the ``HalfNormal`` prior on the field standard deviation.
+    nu : float, optional
+        Matern smoothness (boundary sharpness) of the field, one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``. Fix it per fit and
+        model-compare across values to read out boundary sharpness (see
+        :func:`mesh.compare_smoothness`).
     jitter : float, optional
         Diagonal jitter for Cholesky stability.
     """
@@ -169,7 +184,7 @@ def spatial_negbinomial(
     intercept = numpyro.sample("intercept", dist.Normal(0.0, 25.0))
     concentration = numpyro.sample("concentration", dist.Gamma(2.0, 0.1))
 
-    f = gp_field("f", coords, range_, eta, jitter=jitter)
+    f = gp_field("f", coords, range_, eta, nu=nu, jitter=jitter)
     mu = jnp.exp(intercept + log_offset + f)
     numpyro.sample(
         "obs",

@@ -15,14 +15,22 @@ from __future__ import annotations
 
 from .fit import (
     allele_arrays,
+    compare_smoothness,
     coregion_counts_arrays,
     coregion_feature_order,
     counts_arrays,
     enable_parallel_chains,
     fit_model,
     get_range_posterior,
+    nu_label,
 )
-from .kernels import cholesky_factor, matern32_kernel, pairwise_distances
+from .kernels import (
+    MATERN_NU,
+    cholesky_factor,
+    matern32_kernel,
+    matern_kernel,
+    pairwise_distances,
+)
 from .model import (
     coregionalized_negbinomial,
     gp_field,
@@ -60,8 +68,10 @@ __all__ = [
     "__version__",
     # kernels
     "pairwise_distances",
+    "matern_kernel",
     "matern32_kernel",
     "cholesky_factor",
+    "MATERN_NU",
     # simulate
     "SimulatedData",
     "simulate_allele",
@@ -83,6 +93,8 @@ __all__ = [
     "allele_arrays",
     "coregion_counts_arrays",
     "coregion_feature_order",
+    "nu_label",
+    "compare_smoothness",
     # summaries
     "summarize_range",
     "summarize_parameters",

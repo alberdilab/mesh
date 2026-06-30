@@ -54,19 +54,44 @@ or niche partitioning.
   ranges recovered inside their 95% intervals and every feature assigned to the
   field it was generated from.
 
+## Done — boundary sharpness: crisp edges vs. gradients
+
+*Biological question: **do patches have crisp edges or fade as gradients?***
+Crisp boundaries point to competitive exclusion or a physical/biofilm barrier;
+smooth gradients point to diffusion-limited gradients of O₂, pH or nutrients.
+The readout is the Matérn smoothness ν: small ν = rough field = crisp edges,
+large ν = smooth field = gradients.
+
+Arbitrary continuous ν needs the fractional-order modified Bessel function
+`K_ν`, which has no autodiff-stable JAX implementation, so MESH uses the
+**closed-form family** {1/2, 3/2, 5/2} plus the squared-exponential ν→∞ limit
+and **selects among them by LOO model comparison** — each fit keeps one fixed ν,
+so the latent field stays unambiguous (no discrete latent marginalised inside a
+chain).
+
+- {func}`mesh.matern_kernel` — parametric Matérn covariance over the closed-form
+  {data}`mesh.MATERN_NU` smoothnesses (`0.5, 1.5, 2.5, math.inf`); the range
+  keeps its meaning (patch size in microns) across every member.
+- `nu` argument on {func}`mesh.spatial_negbinomial`, {func}`mesh.spatial_betabinomial`,
+  {func}`mesh.gp_field` and {func}`mesh.simulate_counts` (the known-truth
+  generator records `truth["nu"]`).
+- {func}`mesh.compare_smoothness` — fit the same data under each fixed-ν kernel
+  and rank them by PSIS-LOO ({func}`arviz.compare`); the winning ν is the
+  boundary-sharpness readout.
+- Gating test (`tests/test_smoothness.py`): the closed forms and the
+  roughness-vs-ν ordering are checked deterministically (SE limit included), and
+  a simulated **rough** field is recovered as the rough kernel decisively by LOO.
+  Roughness is the reliably identifiable direction — confirming *extra* smoothness
+  from noisy counts is intrinsically weaker (a rough kernel fits smooth data too).
+
 ## Later milestones — more axes of architecture
 
 Each item below is a distinct architecture axis, framed by the biological
 question it answers. They are described in the design overview and are
-intentionally **not** yet implemented. The first three stay inside the current
+intentionally **not** yet implemented. The first two stay inside the current
 single-fit paradigm (same input table, same Matérn-GP machinery) and are the
 cheapest to add.
 
-- **Boundary sharpness** — *do patches have crisp edges or fade as gradients?*
-  Crisp boundaries point to competitive exclusion or a physical/biofilm barrier;
-  smooth gradients point to diffusion-limited gradients of O₂, pH or nutrients.
-  Estimate (or model-compare) the Matérn smoothness ν instead of fixing it at
-  3/2.
 - **Direction (anisotropy)** — *does a feature organise along a host axis?*
   Proximal–distal gut, crypt–villus, or depth into a biofilm. A per-axis
   lengthscale (or a rotation) replaces the single isotropic `range`.

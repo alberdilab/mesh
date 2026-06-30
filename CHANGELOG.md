@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Boundary sharpness (Matérn smoothness ν)** — infer whether patches have
+  crisp edges or fade as gradients instead of fixing the smoothness at 3/2.
+  Small ν = rough field = crisp boundaries (competitive exclusion or a
+  physical/biofilm barrier); large ν = smooth field = gradients (diffusion-limited
+  O₂/pH/nutrient gradients). Arbitrary ν needs the fractional-order Bessel `K_ν`
+  (no autodiff-stable JAX form), so MESH uses the **closed-form family**
+  {1/2, 3/2, 5/2} plus the squared-exponential ν→∞ limit and **selects among
+  them by LOO model comparison** — one unambiguous field per fit, no discrete
+  latent marginalised inside a chain.
+  - `mesh.matern_kernel(coords, range, nu=...)` — parametric Matérn covariance
+    over the closed-form `mesh.MATERN_NU` values (`0.5, 1.5, 2.5, math.inf`),
+    keeping `ell` interpretable as the same **range** (patch size in microns)
+    across every member. `mesh.matern32_kernel` is unchanged (now the ν=1.5
+    path); `mesh.cholesky_factor` gains a `nu` argument.
+  - `nu` argument on `mesh.gp_field`, `mesh.spatial_negbinomial` and
+    `mesh.spatial_betabinomial` (default `1.5`), and on `mesh.simulate_counts` /
+    `mesh.draw_field` so a field can be drawn at a chosen smoothness (recorded as
+    `truth["nu"]`).
+  - `mesh.compare_smoothness` — fit the same data under each fixed-ν kernel and
+    rank them by PSIS-LOO (`arviz.compare`); returns the comparison table
+    (best first, indexed by `mesh.nu_label`, with a `nu` column) and the
+    per-ν fits. `fit_model` gains `log_likelihood=True` to store the pointwise
+    log-likelihood LOO needs.
+  - Gating test (`tests/test_smoothness.py`): the closed forms and the
+    roughness-vs-ν ordering are checked deterministically (SE limit included),
+    and a simulated **rough** field is recovered as the rough kernel decisively
+    by LOO. Roughness is the reliably identifiable direction; confirming extra
+    smoothness from noisy counts is intrinsically weaker.
 - **Coregionalization (M1+ milestone seed)** — multiple features now share
   latent fields, so the inference can separate co-existing spatial scales and
   read out which features share a territory.

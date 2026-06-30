@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import expit
 
-from .kernels import matern32_kernel
+from .kernels import matern_kernel
 
 __all__ = [
     "SimulatedData",
@@ -53,9 +53,10 @@ def draw_field(
     range_: float,
     eta: float,
     rng: np.random.Generator,
+    nu: float = 1.5,
     jitter: float = 1e-6,
 ) -> np.ndarray:
-    """Draw a zero-mean Matern 3/2 GP realisation via the Cholesky factor.
+    """Draw a zero-mean Matern GP realisation via the Cholesky factor.
 
     Parameters
     ----------
@@ -67,15 +68,21 @@ def draw_field(
         Marginal standard deviation of the field.
     rng : numpy.random.Generator
         Random generator for reproducibility.
+    nu : float, optional
+        Matern smoothness (boundary sharpness), one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``. Smaller ``nu`` gives a
+        rougher field (crisper patch edges), larger gives a smoother one.
     jitter : float, optional
-        Diagonal jitter for Cholesky stability.
+        Diagonal jitter for Cholesky stability. Very smooth kernels
+        (``nu`` large, especially the squared-exponential ``math.inf``) yield
+        ill-conditioned covariances; raise this if the Cholesky fails.
 
     Returns
     -------
     numpy.ndarray
         Field values with shape ``(n,)``.
     """
-    k = np.asarray(matern32_kernel(coords, range_, variance=1.0, jitter=jitter))
+    k = np.asarray(matern_kernel(coords, range_, nu=nu, variance=1.0, jitter=jitter))
     chol = np.linalg.cholesky(k)
     z = rng.standard_normal(coords.shape[0])
     return eta * (chol @ z)
@@ -179,7 +186,9 @@ def simulate_counts(
     mean_depth: float = 1e6,
     depth_log_sd: float = 0.3,
     feature_id: str = "feat0",
+    nu: float = 1.5,
     seed: int = 0,
+    jitter: float = 1e-6,
 ) -> SimulatedData:
     """Simulate negative-binomial abundance counts over a Matern field.
 
@@ -216,18 +225,27 @@ def simulate_counts(
         Log-normal scatter of per-sample depth.
     feature_id : str
         Identifier for the (single) feature.
+    nu : float, optional
+        Matern smoothness (boundary sharpness) of the generating field, one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``. This is the truth a
+        smoothness model-comparison (:func:`mesh.compare_smoothness`) must
+        recover: small ``nu`` = rough/crisp edges, large = smooth gradients.
     seed : int
         Random seed.
+    jitter : float, optional
+        Diagonal jitter for the field's Cholesky factor. Raise for very smooth
+        kernels (large ``nu`` / squared-exponential) whose covariance is
+        ill-conditioned.
 
     Returns
     -------
     SimulatedData
-        Table, truth dict (incl. ``intercept`` and ``concentration``), coords
-        and field.
+        Table, truth dict (incl. ``intercept``, ``concentration`` and ``nu``),
+        coords and field.
     """
     rng = np.random.default_rng(seed)
     coords = _coords(n_samples, domain, rng)
-    f = draw_field(coords, range_, eta, rng)
+    f = draw_field(coords, range_, eta, rng, nu=nu, jitter=jitter)
 
     depth = rng.lognormal(mean=np.log(mean_depth), sigma=depth_log_sd, size=n_samples)
     intercept = float(np.log(baseline_rate))
@@ -253,6 +271,7 @@ def simulate_counts(
     truth = {
         "range": range_,
         "eta": eta,
+        "nu": nu,
         "intercept": intercept,
         "concentration": concentration,
         "domain": domain,
