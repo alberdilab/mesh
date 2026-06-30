@@ -6,12 +6,14 @@ Also provides helpers that turn a validated single-feature table (see
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 from typing import Any
 
 import arviz as az
 import jax
 import numpy as np
+import numpyro
 import pandas as pd
 from numpyro.infer import MCMC, NUTS
 
@@ -19,10 +21,87 @@ from . import schema as _schema
 
 __all__ = [
     "fit_model",
+    "enable_parallel_chains",
     "get_range_posterior",
     "counts_arrays",
     "allele_arrays",
 ]
+
+
+def _jax_initialized() -> bool:
+    """Return whether JAX has already initialised its backend.
+
+    Once the backend is live the host device count is locked, so
+    :func:`enable_parallel_chains` can no longer change it.
+    """
+    from jax._src import xla_bridge
+
+    return bool(getattr(xla_bridge, "_backends", {}))
+
+
+def enable_parallel_chains(n: int) -> int:
+    """Expose ``n`` host (CPU) devices so chains can run truly in parallel.
+
+    JAX runs ``chain_method="parallel"`` across *devices*; on CPU it sees a
+    single device unless told otherwise. This wraps
+    :func:`numpyro.set_host_device_count`, which sets an XLA flag that only
+    takes effect **before the JAX backend initialises**. Call it once, early --
+    after ``import mesh`` is fine, but before your first :func:`fit_model`.
+
+    Parameters
+    ----------
+    n : int
+        Number of host devices (CPU cores) to expose.
+
+    Returns
+    -------
+    int
+        ``jax.local_device_count()`` after the attempt -- the number of devices
+        actually available. If this is below ``n`` the call came too late.
+
+    Warns
+    -----
+    UserWarning
+        If the JAX backend is already initialised, in which case the device
+        count cannot be raised and the request has no effect.
+    """
+    if _jax_initialized():
+        warnings.warn(
+            "JAX backend already initialised; enable_parallel_chains(%d) has no "
+            "effect. Call it earlier -- after `import mesh` but before the first "
+            "fit_model() (or any other JAX operation)." % n,
+            UserWarning,
+            stacklevel=2,
+        )
+        return int(jax.local_device_count())
+    numpyro.set_host_device_count(n)
+    return int(jax.local_device_count())
+
+
+def _resolve_chain_method(chain_method: str, num_chains: int) -> str:
+    """Turn ``chain_method="auto"`` into a concrete method for the runtime.
+
+    ``"auto"`` runs chains in parallel across devices when enough are available,
+    otherwise falls back to ``"vectorized"`` (faster than ``"sequential"`` on a
+    single device) and warns how to unlock real parallelism. Any explicit
+    method is passed through unchanged.
+    """
+    if chain_method != "auto":
+        return chain_method
+    if num_chains <= 1:
+        return "vectorized"
+    n_devices = int(jax.local_device_count())
+    if n_devices >= num_chains:
+        return "parallel"
+    warnings.warn(
+        "chain_method='auto' requested %d chains but only %d JAX device(s) are "
+        "available; running them on one device with chain_method='vectorized'. "
+        "For true parallelism call mesh.enable_parallel_chains(%d) once, before "
+        "the first fit_model()." % (num_chains, n_devices, num_chains),
+        UserWarning,
+        stacklevel=3,
+    )
+    return "vectorized"
 
 
 def fit_model(
@@ -31,7 +110,7 @@ def fit_model(
     num_warmup: int = 500,
     num_samples: int = 500,
     num_chains: int = 1,
-    chain_method: str = "vectorized",
+    chain_method: str = "auto",
     seed: int = 0,
     target_accept_prob: float = 0.9,
     progress_bar: bool = False,
@@ -46,11 +125,13 @@ def fit_model(
     num_warmup, num_samples, num_chains : int
         NUTS sampling configuration.
     chain_method : str
-        How to run multiple chains: ``"vectorized"`` (default; vmap over chains,
-        single device), ``"sequential"`` or ``"parallel"``. ``"parallel"`` needs
-        one device per chain; on CPU, call ``numpyro.set_host_device_count(n)``
-        *before* JAX initializes (i.e. before importing this module), otherwise
-        it falls back to sequential with a warning.
+        How to run multiple chains: ``"auto"`` (default), ``"vectorized"``
+        (vmap over chains, single device), ``"sequential"`` or ``"parallel"``.
+        ``"auto"`` uses ``"parallel"`` when at least ``num_chains`` JAX devices
+        are available and otherwise falls back to ``"vectorized"`` with a
+        warning. ``"parallel"`` needs one device per chain; on CPU, call
+        :func:`enable_parallel_chains` (or ``numpyro.set_host_device_count(n)``)
+        *before* the first fit, otherwise there is only one device to use.
     seed : int
         PRNG seed.
     target_accept_prob : float
@@ -66,6 +147,7 @@ def fit_model(
     arviz.InferenceData
         Posterior draws and sample statistics.
     """
+    chain_method = _resolve_chain_method(chain_method, num_chains)
     kernel = NUTS(model, target_accept_prob=target_accept_prob)
     mcmc = MCMC(
         kernel,

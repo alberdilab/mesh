@@ -17,6 +17,8 @@ the central 95%); set ``range_prior`` to match your sampling domain.
 
 from __future__ import annotations
 
+import math
+
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
@@ -29,7 +31,12 @@ __all__ = ["gp_field", "spatial_betabinomial", "spatial_negbinomial"]
 # Default weakly-informative range prior, (loc, scale) of a LogNormal in
 # log-microns. Centred below 200 micron so the prior does not sit on any
 # particular truth, but broad enough to be data-dominated.
-DEFAULT_RANGE_PRIOR: tuple[float, float] = (float(jnp.log(150.0)), 1.0)
+#
+# Use ``math.log`` (pure Python) rather than ``jnp.log`` so this module-level
+# constant does not run a JAX op at import time. Running one here would
+# initialise the JAX backend on ``import mesh`` and lock the host device count,
+# preventing ``mesh.enable_parallel_chains`` from taking effect afterwards.
+DEFAULT_RANGE_PRIOR: tuple[float, float] = (math.log(150.0), 1.0)
 
 
 def gp_field(

@@ -5,6 +5,27 @@ All notable changes to MESH are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `mesh.enable_parallel_chains(n)` — expose `n` host (CPU) devices so chains can
+  run truly in parallel. Wraps `numpyro.set_host_device_count`; warns if called
+  too late (after the JAX backend has initialised) when it can no longer take
+  effect.
+
+### Changed
+- `fit_model` now defaults to `chain_method="auto"`: it runs chains in parallel
+  when at least `num_chains` JAX devices are available, and otherwise falls back
+  to `"vectorized"` (faster than `"sequential"` on a single device) with a
+  warning explaining how to unlock real parallelism via
+  `enable_parallel_chains`.
+
+### Fixed
+- `import mesh` no longer initialises the JAX backend. The default range prior
+  used a module-level `jnp.log(...)` (a JAX op) that locked the host device
+  count at import time; it now uses `math.log`, deferring backend init to the
+  first fit so `enable_parallel_chains` can take effect afterwards.
+
 ## [0.1.0] — 2026-06-28
 
 First public release. MESH is a spatial-scale-explicit, coverage-aware Bayesian
@@ -81,4 +102,5 @@ the schema in `mesh.schema`.
   fields, crossed organizational groupings, multi-host hierarchical GPs, and
   multi-omics. No SPDE / sparse / inducing-point / variational-GP machinery.
 
+[Unreleased]: https://github.com/alberdilab/mesh/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/alberdilab/mesh/releases/tag/v0.1.0

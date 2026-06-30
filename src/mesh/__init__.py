@@ -13,7 +13,13 @@ bioinformatics.
 
 from __future__ import annotations
 
-from .fit import allele_arrays, counts_arrays, fit_model, get_range_posterior
+from .fit import (
+    allele_arrays,
+    counts_arrays,
+    enable_parallel_chains,
+    fit_model,
+    get_range_posterior,
+)
 from .kernels import cholesky_factor, matern32_kernel, pairwise_distances
 from .model import gp_field, spatial_betabinomial, spatial_negbinomial
 from .plots import (
@@ -56,6 +62,7 @@ __all__ = [
     "spatial_negbinomial",
     # fit
     "fit_model",
+    "enable_parallel_chains",
     "get_range_posterior",
     "counts_arrays",
     "allele_arrays",

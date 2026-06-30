@@ -82,10 +82,11 @@ answer; the credible interval is just its middle 95%.
   - How many independent runs to start from different places. **Use ≥ 2.** You
     need at least two to compute $\hat R$, the check that the runs agree (below).
 * - `chain_method`
-  - How the chains share your hardware. The default `"vectorized"` runs them all
-    at once on one device and is the fastest choice on a laptop CPU — leave it
-    alone unless you have several cores/GPUs to spread chains across, in which
-    case see [running chains in parallel](../methods/inference.md#running-chains-in-parallel).
+  - How the chains share your hardware. The default `"auto"` spreads chains
+    across devices when enough are available and otherwise runs them at once on
+    one device (the fastest choice on a laptop CPU) — leave it alone unless you
+    have several cores/GPUs to spread chains across, in which case see
+    [running chains in parallel](../methods/inference.md#running-chains-in-parallel).
 * - `seed`
   - Random seed. Same seed + same data = identical result, so your analysis is
     reproducible.

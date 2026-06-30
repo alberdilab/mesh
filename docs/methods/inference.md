@@ -16,7 +16,6 @@ idata = fit_model(
     num_warmup=500,
     num_samples=500,
     num_chains=2,
-    chain_method="vectorized",
     target_accept_prob=0.9,
     seed=0,
     **arrays,
@@ -29,17 +28,19 @@ Key arguments:
   recovery tests use 400/400; 500–1000 each is a reasonable default for real
   fits.
 - **`num_chains` / `chain_method`** — run ≥ 2 chains to obtain a meaningful
-  $\hat R$. The default `chain_method="vectorized"` runs chains with a single
-  `vmap` on one device, which is efficient for exact-GP models on CPU. To run
-  chains on separate cores instead, use `chain_method="parallel"` — but this
-  needs one device per chain (see [running chains in parallel](#running-chains-in-parallel)).
+  $\hat R$. The default `chain_method="auto"` runs the chains on separate
+  devices when enough are available, and otherwise falls back to a single `vmap`
+  on one device (efficient for exact-GP models on CPU) with a warning. To run
+  chains on separate cores, expose the devices first with
+  `mesh.enable_parallel_chains(n)` (see
+  [running chains in parallel](#running-chains-in-parallel)).
 - **`target_accept_prob`** — raising it (e.g. 0.95) shrinks the step size and
   reduces divergences in awkward GP geometries, at some cost in speed.
 - **`seed`** — PRNG seed for reproducibility.
 
 ## Running chains in parallel
 
-The three `chain_method` options differ only in *how* chains are mapped onto
+The `chain_method` options differ only in *how* chains are mapped onto
 hardware — the sampling is identical:
 
 ```{list-table}
@@ -49,10 +50,13 @@ hardware — the sampling is identical:
 * - Method
   - Devices used
   - When to use it
-* - `"vectorized"` *(default)*
+* - `"auto"` *(default)*
+  - One per chain if available, else 1
+  - Picks `"parallel"` when at least `num_chains` devices are exposed, otherwise
+    falls back to `"vectorized"` with a warning. Needs no setup.
+* - `"vectorized"`
   - 1 (batched `vmap`)
-  - Single CPU or single GPU. Normally the **fastest** option here, and needs no
-    setup.
+  - Single CPU or single GPU. Normally the **fastest** option there.
 * - `"parallel"`
   - One per chain
   - You genuinely have several devices (multi-GPU node, HPC allocation, or CPU
@@ -62,33 +66,24 @@ hardware — the sampling is identical:
   - Memory-constrained runs or debugging; slowest.
 ```
 
-On a single CPU, `"vectorized"` is the right default and you can stop here. If
-you specifically want chains on **separate cores**, JAX exposes only **one** CPU
-device by default, so `"parallel"` silently falls back to sequential and warns:
-
-```text
-UserWarning: There are not enough devices to run parallel chains: expected 2 but got 1.
-```
-
-To expose more devices you must call `numpyro.set_host_device_count(n)` **before
-JAX initializes its backend** — JAX reads the device count only once, on first
-use. The bulletproof pattern is to make it the *very first* thing your program
-does, before importing `mesh` (which imports JAX):
+On a single CPU there is one device, so `"auto"` runs `"vectorized"` and warns
+how to do better. To put chains on **separate cores**, expose more CPU devices
+with `mesh.enable_parallel_chains(n)`. This must run **before JAX initializes its
+backend** — JAX reads the device count only once, on first use — but `import
+mesh` no longer initializes JAX, so calling it right after the import (and before
+the first `fit_model`) is enough:
 
 ```python
-import numpyro
-numpyro.set_host_device_count(2)   # MUST come before any JAX work
-
+import mesh
 from mesh import fit_model, spatial_negbinomial, counts_arrays, simulate_counts
-import jax
-print(jax.local_device_count())    # -> 2
+
+print(mesh.enable_parallel_chains(2))   # -> 2
 
 arrays = counts_arrays(simulate_counts(n_samples=150, range_=200.0, seed=0).table)
 idata = fit_model(
     spatial_negbinomial,
     num_warmup=500, num_samples=500,
-    num_chains=2,
-    chain_method="parallel",       # now runs on 2 separate CPU devices
+    num_chains=2,                  # auto -> parallel on 2 separate CPU devices
     seed=0, **arrays,
 )
 ```
@@ -96,13 +91,12 @@ idata = fit_model(
 :::{admonition} Common gotcha
 :class: warning
 
-If `jax.local_device_count()` still prints `1` after calling
-`set_host_device_count`, the JAX backend was **already initialized** earlier in
-the session (e.g. a previous `fit_model` run). Restart the interpreter and make
-the call the first line. On Apple Silicon, also check `jax.devices()`: if it
-shows a `METAL` device you have `jax-metal` installed, and the host-device flag
-only multiplies **CPU** devices — set `os.environ["JAX_PLATFORMS"] = "cpu"`
-first.
+If `enable_parallel_chains` returns `1` (or warns that the backend is already
+initialized), JAX was started earlier in the session — e.g. a previous
+`fit_model` run or any other JAX op. Restart the interpreter and call it before
+the first fit. On Apple Silicon, also check `jax.devices()`: if it shows a
+`METAL` device you have `jax-metal` installed, and the host-device flag only
+multiplies **CPU** devices — set `os.environ["JAX_PLATFORMS"] = "cpu"` first.
 :::
 
 ## Why exact GPs here

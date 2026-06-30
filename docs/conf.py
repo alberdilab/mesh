@@ -96,7 +96,7 @@ html_theme = "furo"
 html_title = "MESH"
 html_static_path = ["_static"]
 html_theme_options = {
-    "source_repository": "https://github.com/anttonalberdi/mesh",
+    "source_repository": "https://github.com/alberdilab/mesh",
     "source_branch": "main",
     "source_directory": "docs/",
 }
