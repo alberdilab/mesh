@@ -15,13 +15,20 @@ from __future__ import annotations
 
 from .fit import (
     allele_arrays,
+    coregion_counts_arrays,
+    coregion_feature_order,
     counts_arrays,
     enable_parallel_chains,
     fit_model,
     get_range_posterior,
 )
 from .kernels import cholesky_factor, matern32_kernel, pairwise_distances
-from .model import gp_field, spatial_betabinomial, spatial_negbinomial
+from .model import (
+    coregionalized_negbinomial,
+    gp_field,
+    spatial_betabinomial,
+    spatial_negbinomial,
+)
 from .plots import (
     plot_amplitude_posterior,
     plot_field,
@@ -33,9 +40,15 @@ from .plots import (
     posterior_field_mean,
 )
 from .schema import SchemaError, validate_table
-from .simulate import SimulatedData, simulate_allele, simulate_counts
+from .simulate import (
+    SimulatedData,
+    simulate_allele,
+    simulate_coregionalized,
+    simulate_counts,
+)
 from .summaries import (
     decompose_variance,
+    summarize_loadings,
     summarize_parameters,
     summarize_range,
     variance_partition,
@@ -53,6 +66,7 @@ __all__ = [
     "SimulatedData",
     "simulate_allele",
     "simulate_counts",
+    "simulate_coregionalized",
     # schema
     "SchemaError",
     "validate_table",
@@ -60,17 +74,21 @@ __all__ = [
     "gp_field",
     "spatial_betabinomial",
     "spatial_negbinomial",
+    "coregionalized_negbinomial",
     # fit
     "fit_model",
     "enable_parallel_chains",
     "get_range_posterior",
     "counts_arrays",
     "allele_arrays",
+    "coregion_counts_arrays",
+    "coregion_feature_order",
     # summaries
     "summarize_range",
     "summarize_parameters",
     "decompose_variance",
     "variance_partition",
+    "summarize_loadings",
     # plots
     "plot_samples",
     "plot_range_posterior",

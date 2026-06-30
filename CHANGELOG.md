@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Coregionalization (M1+ milestone seed)** — multiple features now share
+  latent fields, so the inference can separate co-existing spatial scales and
+  read out which features share a territory.
+  - `mesh.coregionalized_negbinomial` — a linear model of coregionalization:
+    `n_fields` unit-variance Matérn fields at **ordered** ranges, shared across
+    features through a feature×field loadings matrix. Ordering the ranges pins
+    field identity; per-field sign is left free.
+  - `mesh.simulate_coregionalized` — known-truth generator for the model (a
+    multi-feature counts table over two scales, default four-feature block
+    structure).
+  - `mesh.coregion_counts_arrays` / `mesh.coregion_feature_order` — pack a
+    multi-feature table into `(J, n)` matrices and recover the feature row order.
+  - `mesh.summarize_loadings` — tidy per-`(feature, field)` loadings with a
+    sign-invariant `abs_mean` and the `assigned_field` for each feature.
+  - Gating recovery test (`tests/test_coregionalization.py`): two co-existing
+    scales, asserting both ranges land in their 95% intervals and every feature
+    is assigned to the field it was generated from.
 - `mesh.enable_parallel_chains(n)` — expose `n` host (CPU) devices so chains can
   run truly in parallel. Wraps `numpyro.set_host_device_count`; warns if called
   too late (after the JAX backend has initialised) when it can no longer take

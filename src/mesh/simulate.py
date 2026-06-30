@@ -17,7 +17,13 @@ from scipy.special import expit
 
 from .kernels import matern32_kernel
 
-__all__ = ["SimulatedData", "draw_field", "simulate_allele", "simulate_counts"]
+__all__ = [
+    "SimulatedData",
+    "draw_field",
+    "simulate_allele",
+    "simulate_counts",
+    "simulate_coregionalized",
+]
 
 
 @dataclass
@@ -252,3 +258,131 @@ def simulate_counts(
         "domain": domain,
     }
     return SimulatedData(table=table, truth=truth, coords=coords, field=f)
+
+
+# Default truth for the coregionalization generator: four features, two scales.
+# The first two features load on the small-range field (column 0), the last two
+# on the large-range field (column 1) -- a clean two-territory structure the
+# inference must recover (which scales exist, and which feature sits on which).
+_DEFAULT_COREGION_LOADINGS: np.ndarray = np.array(
+    [
+        [1.5, 0.0],
+        [1.2, 0.0],
+        [0.0, 1.5],
+        [0.0, 1.2],
+    ]
+)
+
+
+def simulate_coregionalized(
+    n_samples: int = 200,
+    ranges: tuple[float, ...] = (70.0, 350.0),
+    loadings: np.ndarray | None = None,
+    domain: float = 800.0,
+    baseline_rate: float = 5e-8,
+    concentration: float = 10.0,
+    length: int = 1000,
+    mean_depth: float = 1e6,
+    depth_log_sd: float = 0.3,
+    seed: int = 0,
+) -> SimulatedData:
+    """Simulate a coregionalized multi-feature counts table over shared fields.
+
+    Draws ``n_fields = len(ranges)`` independent unit-variance Matern fields at
+    the given (ascending) ranges and mixes them into ``J`` features through the
+    ``loadings`` matrix, then emits negative-binomial counts per feature with the
+    standard depth/length offset (see :func:`simulate_counts`). This is the
+    known-truth generator for :func:`mesh.coregionalized_negbinomial`: the truth
+    is *which scales exist* and *which feature loads on which field*.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of spatial microsamples (shared across features).
+    ranges : tuple of float
+        True Matern ranges (patch sizes, microns), one per latent field, in
+        **ascending** order -- the model samples ordered ranges.
+    loadings : numpy.ndarray, optional
+        ``(J, n_fields)`` feature-by-field loadings. Defaults to a four-feature,
+        two-scale block structure (features 0-1 on the small field, 2-3 on the
+        large field).
+    domain : float
+        Side length of the square sampling domain, in microns.
+    baseline_rate : float
+        Expected count per (read x bp); sets the intercept ``log(baseline_rate)``.
+    concentration : float
+        NB2 concentration (dispersion); larger means closer to Poisson.
+    length : int
+        Feature length (bp), entering the offset.
+    mean_depth : float
+        Geometric-mean per-sample sequencing depth (reads).
+    depth_log_sd : float
+        Log-normal scatter of per-sample depth.
+    seed : int
+        Random seed.
+
+    Returns
+    -------
+    SimulatedData
+        ``table`` is long-format with ``J`` features sharing the same samples;
+        ``truth`` holds ``ranges`` and the ``loadings`` matrix; ``field`` is the
+        ``(n_fields, n)`` matrix of realised fields.
+    """
+    if loadings is None:
+        loadings = _DEFAULT_COREGION_LOADINGS
+    loadings = np.asarray(loadings, dtype=np.float64)
+    if loadings.shape[1] != len(ranges):
+        raise ValueError(
+            f"loadings has {loadings.shape[1]} columns but {len(ranges)} ranges "
+            "were given; columns must match the number of fields."
+        )
+    if list(ranges) != sorted(ranges):
+        raise ValueError("`ranges` must be in ascending order (the model orders them).")
+
+    n_features = loadings.shape[0]
+    rng = np.random.default_rng(seed)
+    coords = _coords(n_samples, domain, rng)
+
+    # One unit-variance field per scale; (n_fields, n).
+    field_mat = np.stack(
+        [draw_field(coords, r, 1.0, rng) for r in ranges], axis=0
+    )
+    latent = loadings @ field_mat  # (J, n)
+
+    depth = rng.lognormal(mean=np.log(mean_depth), sigma=depth_log_sd, size=n_samples)
+    intercept = float(np.log(baseline_rate))
+    log_offset = np.log(depth) + np.log(length)  # (n,)
+    log_mu = intercept + log_offset[None, :] + latent  # (J, n)
+    mu = np.exp(log_mu)
+
+    prob = concentration / (concentration + mu)
+    counts = rng.negative_binomial(concentration, prob)  # (J, n)
+
+    feature_ids = [f"feat{j}" for j in range(n_features)]
+    sample_ids = [f"s{i:04d}" for i in range(n_samples)]
+    frames = []
+    for j, feature_id in enumerate(feature_ids):
+        frames.append(
+            pd.DataFrame(
+                {
+                    "feature_id": feature_id,
+                    "sample_id": sample_ids,
+                    "x": coords[:, 0],
+                    "y": coords[:, 1],
+                    "count": counts[j].astype(np.int64),
+                    "depth": depth.astype(np.float64),
+                    "length": np.full(n_samples, length, dtype=np.int64),
+                }
+            )
+        )
+    table = pd.concat(frames, ignore_index=True)
+
+    truth = {
+        "ranges": tuple(float(r) for r in ranges),
+        "loadings": loadings,
+        "feature_ids": feature_ids,
+        "intercept": intercept,
+        "concentration": concentration,
+        "domain": domain,
+    }
+    return SimulatedData(table=table, truth=truth, coords=coords, field=field_mat)

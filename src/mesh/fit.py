@@ -25,6 +25,8 @@ __all__ = [
     "get_range_posterior",
     "counts_arrays",
     "allele_arrays",
+    "coregion_counts_arrays",
+    "coregion_feature_order",
 ]
 
 
@@ -228,3 +230,60 @@ def allele_arrays(df: pd.DataFrame, *, validate: bool = True) -> dict[str, np.nd
     alt_count = sub["alt"].to_numpy(dtype=np.int64)
     total_count = sub["depth"].to_numpy(dtype=np.int64)
     return {"coords": coords, "alt_count": alt_count, "total_count": total_count}
+
+
+def coregion_counts_arrays(
+    df: pd.DataFrame, *, validate: bool = True
+) -> dict[str, np.ndarray]:
+    """Build ``coords``, ``counts`` and ``log_offset`` for the coregion model.
+
+    Unlike :func:`counts_arrays` (single feature, ``(n,)`` vectors), this packs
+    a **multi-feature** table into matrices for
+    :func:`mesh.coregionalized_negbinomial`. Features are taken in sorted
+    ``feature_id`` order and samples in sorted ``sample_id`` order; rows of the
+    returned ``counts``/``log_offset`` correspond to that feature order.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Validated multi-feature table (shared catalog across samples).
+    validate : bool
+        Whether to run :func:`mesh.schema.validate_table` first.
+
+    Returns
+    -------
+    dict
+        Keys ``coords`` (``(n, 2)``), ``counts`` (``(J, n)``) and ``log_offset``
+        (``(J, n)`` = ``log(depth) + log(length)``), with ``J`` features ordered
+        by sorted ``feature_id``. (See :attr:`feature order
+        <mesh.fit.coregion_feature_order>` to recover the labels.)
+    """
+    if validate:
+        _schema.validate_table(df)
+    features = sorted(df["feature_id"].unique())
+    samples = sorted(df["sample_id"].unique())
+
+    def _matrix(value: str, dtype: type) -> np.ndarray:
+        wide = df.pivot(index="feature_id", columns="sample_id", values=value)
+        return wide.loc[features, samples].to_numpy(dtype=dtype)
+
+    counts = _matrix("count", np.int64)
+    depth = _matrix("depth", np.float64)
+    length = _matrix("length", np.float64)
+    log_offset = np.log(depth) + np.log(length)
+
+    # Coordinates are shared across features; read them from any single feature.
+    coord_rows = (
+        df.drop_duplicates("sample_id").set_index("sample_id").loc[samples, ["x", "y"]]
+    )
+    coords = coord_rows.to_numpy(dtype=np.float64)
+    return {"coords": coords, "counts": counts, "log_offset": log_offset}
+
+
+def coregion_feature_order(df: pd.DataFrame) -> list[str]:
+    """Return the feature_id order used by :func:`coregion_counts_arrays`.
+
+    The coregion model's loadings rows follow this order, so use it to map a
+    posterior loading row back to its feature.
+    """
+    return sorted(df["feature_id"].unique())

@@ -23,6 +23,7 @@ __all__ = [
     "summarize_parameters",
     "decompose_variance",
     "variance_partition",
+    "summarize_loadings",
 ]
 
 
@@ -211,4 +212,73 @@ def variance_partition(
                 "hdi_prob": hdi_prob,
             }
         )
+    return pd.DataFrame(rows)
+
+
+def summarize_loadings(
+    idata: az.InferenceData,
+    feature_ids: list[str] | None = None,
+    var_name: str = "loadings",
+    hdi_prob: float = 0.95,
+) -> pd.DataFrame:
+    """Summarise the coregionalization loadings: which feature sits on which field.
+
+    For :func:`mesh.coregionalized_negbinomial`, the loadings matrix ``W``
+    (features x fields) says how each feature's signal is split across spatial
+    scales. This returns one tidy row per ``(feature, field)`` with both the
+    signed posterior loading and its **magnitude**.
+
+    The per-field **sign** of a coregionalization fit is not identified (flipping
+    a field and its loading column together leaves the likelihood unchanged), so
+    the signed ``mean`` can average toward zero across sign modes. The
+    sign-invariant ``abs_mean`` (the posterior mean of ``|W|``) is the reliable
+    quantity for *assignment*: ``assigned_field`` is the field with the largest
+    ``abs_mean`` for each feature. The **relative** sign within a single draw
+    still carries ecology (same vs. opposite sign = co- vs. anti-segregation);
+    inspect the raw draws for that.
+
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        Posterior carrying a ``loadings`` variable of shape ``(J, n_fields)``.
+    feature_ids : list of str, optional
+        Feature labels in the model's row order (sorted ``feature_id``; see
+        :func:`mesh.fit.coregion_feature_order`). Defaults to ``feature0`` ... .
+    var_name : str
+        Name of the loadings variable.
+    hdi_prob : float
+        Mass of the highest-density credible interval over ``|W|``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Rows ``feature, field, mean, abs_mean, abs_hdi_low, abs_hdi_high,
+        assigned_field`` -- one per ``(feature, field)`` pair.
+    """
+    draws = np.asarray(idata.posterior[var_name].values)
+    # (chain, draw, J, n_fields) -> (samples, J, n_fields).
+    flat = draws.reshape(-1, draws.shape[-2], draws.shape[-1])
+    n_features, n_fields = flat.shape[1], flat.shape[2]
+    if feature_ids is None:
+        feature_ids = [f"feature{j}" for j in range(n_features)]
+
+    abs_mean = np.mean(np.abs(flat), axis=0)  # (J, n_fields)
+    assigned = np.argmax(abs_mean, axis=1)  # (J,)
+
+    rows = []
+    for j, feature in enumerate(feature_ids):
+        for k in range(n_fields):
+            col = np.abs(flat[:, j, k])
+            hdi_low, hdi_high = az.hdi(col, prob=hdi_prob)
+            rows.append(
+                {
+                    "feature": feature,
+                    "field": k,
+                    "mean": float(np.mean(flat[:, j, k])),
+                    "abs_mean": float(abs_mean[j, k]),
+                    "abs_hdi_low": float(hdi_low),
+                    "abs_hdi_high": float(hdi_high),
+                    "assigned_field": int(assigned[j]),
+                }
+            )
     return pd.DataFrame(rows)

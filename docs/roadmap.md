@@ -33,17 +33,26 @@ A single fit answers more than patch size; these are surfaced now (see
   and an allele fit ({func}`mesh.plot_scale_comparison`): a function patch wider
   than any allele territory is shared across strains.
 
-## Next — M1+: coregionalization (separating scales)
+## Done — M1+: coregionalization (separating scales)
 
 *Biological question: **which features share a territory, and do they cooperate
-or compete there?*** The immediate next step is **shared loadings across multiple
-features** so that features can co-segregate, and a model with **two Matérn
-fields at different ranges** that the inference can **separate**. The sign and
-structure of the shared loadings reads out ecology directly: features that
-occupy the *same* patches suggest cross-feeding, syntrophy or a shared niche;
-features that *anti-correlate* suggest competition or niche partitioning. The
-gating test: simulate two co-existing scales and confirm the posterior resolves
-both ranges and assigns features to the right field.
+or compete there?*** Implemented as a linear model of coregionalization:
+**shared loadings across multiple features** so that features can co-segregate,
+over **several Matérn fields at different (ordered) ranges** that the inference
+**separates**. The sign and structure of the shared loadings reads out ecology
+directly: features that occupy the *same* patches suggest cross-feeding,
+syntrophy or a shared niche; features that *anti-correlate* suggest competition
+or niche partitioning.
+
+- {func}`mesh.coregionalized_negbinomial` — `n_fields` unit-variance Matérn
+  fields at ordered ranges, shared across features through a feature×field
+  loadings matrix.
+- {func}`mesh.simulate_coregionalized` — known-truth generator over two scales.
+- {func}`mesh.summarize_loadings` — which feature sits on which field
+  (sign-invariant assignment).
+- Gating test (`tests/test_coregionalization.py`): two co-existing scales, both
+  ranges recovered inside their 95% intervals and every feature assigned to the
+  field it was generated from.
 
 ## Later milestones — more axes of architecture
 

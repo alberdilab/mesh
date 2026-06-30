@@ -26,7 +26,12 @@ from jax import Array
 
 from .kernels import matern32_kernel
 
-__all__ = ["gp_field", "spatial_betabinomial", "spatial_negbinomial"]
+__all__ = [
+    "gp_field",
+    "spatial_betabinomial",
+    "spatial_negbinomial",
+    "coregionalized_negbinomial",
+]
 
 # Default weakly-informative range prior, (loc, scale) of a LogNormal in
 # log-microns. Centred below 200 micron so the prior does not sit on any
@@ -166,6 +171,104 @@ def spatial_negbinomial(
 
     f = gp_field("f", coords, range_, eta, jitter=jitter)
     mu = jnp.exp(intercept + log_offset + f)
+    numpyro.sample(
+        "obs",
+        dist.NegativeBinomial2(mu, concentration),
+        obs=counts,
+    )
+
+
+def coregionalized_negbinomial(
+    coords: Array,
+    counts: Array,
+    log_offset: Array,
+    *,
+    n_fields: int = 2,
+    range_prior: tuple[float, float] = DEFAULT_RANGE_PRIOR,
+    loadings_scale: float = 1.0,
+    jitter: float = 1e-6,
+) -> None:
+    r"""Coregionalized spatial abundance model: several features, shared fields.
+
+    A **linear model of coregionalization**. ``n_fields`` unit-variance Matern
+    3/2 fields, each with its own **range** (patch size), are shared across
+    ``J`` features through a loadings matrix ``W`` (``J x n_fields``):
+
+    .. math::
+
+        \log \mu_{ji} = \beta_j + \text{log\_offset}_{ji}
+                        + \sum_k W_{jk}\, f_k(\mathbf{x}_i),
+
+    with :math:`f_k` a unit-variance field at range :math:`\ell_k`. The loadings
+    carry the per-field amplitude, so each feature's signal is split across
+    scales. This is the M1+ *coregionalization* seed: it lets features
+    **co-segregate** (share a territory) and lets the inference **separate two
+    scales**. The sign and structure of ``W`` read out ecology directly --
+    features that load on the *same* field occupy the same patches (cross-feeding,
+    syntrophy, a shared niche); features that load with *opposite* sign
+    anti-segregate (competition, niche partitioning).
+
+    The ranges are sampled **ordered** (``range[0] < range[1] < ...``). Ordering
+    pins field identity -- it removes the label-switching between fields that
+    would otherwise make ``range`` and the loading columns exchangeable -- so the
+    posterior assigns each feature to a *specific* scale. Per-field sign
+    (flipping ``f_k`` and column ``k`` of ``W`` together) is left free; it does
+    not affect the ranges or which features share a field (compare ``|W|``).
+
+    Parameters
+    ----------
+    coords : Array
+        ``(n, 2)`` coordinates in microns (shared across features).
+    counts : Array
+        Observed integer counts, shape ``(J, n)`` -- one row per feature.
+    log_offset : Array
+        Per-sample log offset ``log(depth) + log(length)``, shape ``(J, n)``
+        (or ``(n,)``, broadcast across features).
+    n_fields : int, optional
+        Number of shared latent fields (distinct spatial scales). Default 2.
+    range_prior : tuple of float, optional
+        ``(loc, scale)`` of the LogNormal-style range prior, in log-microns.
+        Applied to each ordered field range.
+    loadings_scale : float, optional
+        Scale of the ``Normal`` prior on the loadings (field amplitudes).
+    jitter : float, optional
+        Diagonal jitter for Cholesky stability.
+    """
+    n_features = counts.shape[0]
+    loc, scale = range_prior
+
+    # Ordered ranges: range[0] < range[1] < ... Ordering pins which field is
+    # which, so the posterior can assign features to a *specific* scale rather
+    # than an exchangeable label. Order on the log scale (exp is monotone, so
+    # the ranges stay ordered) and expose the positive ranges as `range`.
+    log_range = numpyro.sample(
+        "log_range",
+        dist.TransformedDistribution(
+            dist.Normal(loc, scale).expand([n_fields]).to_event(1),
+            dist.transforms.OrderedTransform(),
+        ),
+    )
+    range_ = numpyro.deterministic("range", jnp.exp(log_range))
+
+    # Loadings carry the per-field amplitude (fields are unit-variance).
+    loadings = numpyro.sample(
+        "loadings",
+        dist.Normal(0.0, loadings_scale).expand([n_features, n_fields]).to_event(2),
+    )
+    intercept = numpyro.sample(
+        "intercept", dist.Normal(0.0, 25.0).expand([n_features]).to_event(1)
+    )
+    concentration = numpyro.sample("concentration", dist.Gamma(2.0, 0.1))
+
+    # One unit-variance field per scale; stack to (n_fields, n).
+    fields = [
+        gp_field(f"field{k}", coords, range_[k], 1.0, jitter=jitter)
+        for k in range(n_fields)
+    ]
+    field_mat = jnp.stack(fields, axis=0)
+
+    latent = loadings @ field_mat  # (J, n)
+    mu = jnp.exp(intercept[:, None] + log_offset + latent)
     numpyro.sample(
         "obs",
         dist.NegativeBinomial2(mu, concentration),
