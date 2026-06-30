@@ -204,6 +204,56 @@ A ready-made panel for these three views is in the repo:
 python examples/plot_architecture.py   # writes examples/architecture_panel.png
 ```
 
+## Fitting several features jointly — reading the loadings
+
+The three questions above come from a **single-feature** fit. When you fit
+several features **together** with the coregionalization model
+({func}`mesh.coregionalized_negbinomial`), the output gains two things: a
+**range per shared field** (the co-existing scales) and a **loadings matrix**
+that says *which feature sits on which field*. This is the direct read-out of
+**co-segregation** — features on the same field share a territory.
+
+```python
+from mesh import (
+    coregion_counts_arrays, coregion_feature_order,
+    coregionalized_negbinomial, fit_model,
+    summarize_loadings, plot_loadings,
+)
+
+arrays = coregion_counts_arrays(df)          # multi-feature table -> (J, n) matrices
+idata = fit_model(
+    coregionalized_negbinomial,
+    num_warmup=800, num_samples=800, num_chains=2,
+    target_accept_prob=0.95, n_fields=2, **arrays,
+)
+
+feature_ids = coregion_feature_order(df)     # loadings rows follow this order
+print(summarize_loadings(idata, feature_ids=feature_ids))
+plot_loadings(idata, feature_ids=feature_ids)   # heatmap, assigned field outlined
+```
+
+Reading it:
+
+- **`abs_mean`** — the magnitude of a feature's loading on each field. The largest
+  per row is the feature's **`assigned_field`**: the scale it segregates at.
+  Features sharing a field share a territory.
+- **`mean` (signed)** — within a single field, the *relative* sign of two features
+  distinguishes **co-segregation** (same sign — they crest and trough together)
+  from **anti-segregation** (opposite sign — one fills where the other empties).
+- The **per-field `range`** posteriors are the co-existing scales; read each one
+  exactly like the single-field range above.
+
+:::{admonition} Why magnitudes, not signed loadings, for assignment
+:class: note
+
+A coregionalization fit does not identify the **sign** of a field (flipping a
+field and its loading column together changes nothing observable), so a signed
+loading can average toward zero across chains. Assignment therefore uses the
+sign-invariant magnitude `abs_mean`; the *relative* sign **within one draw** is
+still meaningful, which is what the co- vs. anti-segregation reading relies on.
+See {func}`mesh.summarize_loadings`.
+:::
+
 ## Two sanity checks specific to spatial scale
 
 Even a clean fit can be quietly mis-scaled. Two quick checks

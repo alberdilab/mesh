@@ -14,11 +14,22 @@ import matplotlib.pyplot as plt
 import pytest
 from matplotlib.axes import Axes
 
-from mesh.fit import allele_arrays, counts_arrays, fit_model
-from mesh.model import spatial_betabinomial, spatial_negbinomial
+from mesh.fit import (
+    allele_arrays,
+    coregion_counts_arrays,
+    coregion_feature_order,
+    counts_arrays,
+    fit_model,
+)
+from mesh.model import (
+    coregionalized_negbinomial,
+    spatial_betabinomial,
+    spatial_negbinomial,
+)
 from mesh.plots import (
     plot_amplitude_posterior,
     plot_field,
+    plot_loadings,
     plot_matern_correlation,
     plot_range_posterior,
     plot_samples,
@@ -26,7 +37,7 @@ from mesh.plots import (
     plot_variance_partition,
     posterior_field_mean,
 )
-from mesh.simulate import simulate_allele, simulate_counts
+from mesh.simulate import simulate_allele, simulate_coregionalized, simulate_counts
 from mesh.summaries import decompose_variance, variance_partition
 
 
@@ -55,6 +66,22 @@ def allele_fit():
         num_samples=100,
         num_chains=1,
         seed=1,
+        **arrays,
+    )
+    return sim, idata
+
+
+@pytest.fixture(scope="module")
+def coregion_fit():
+    sim = simulate_coregionalized(n_samples=60, ranges=(80.0, 300.0), seed=3)
+    arrays = coregion_counts_arrays(sim.table)
+    idata = fit_model(
+        coregionalized_negbinomial,
+        num_warmup=100,
+        num_samples=100,
+        num_chains=1,
+        seed=3,
+        n_fields=2,
         **arrays,
     )
     return sim, idata
@@ -143,4 +170,15 @@ def test_plot_scale_comparison(fit, allele_fit):
     assert len(ax.lines) >= 2  # one mean line per fit
     with pytest.raises(ValueError):
         plot_scale_comparison([idata_counts, idata_allele], labels=["only-one"])
+    plt.close("all")
+
+
+def test_plot_loadings(coregion_fit):
+    sim, idata = coregion_fit
+    feature_ids = coregion_feature_order(sim.table)
+    ax = plot_loadings(idata, feature_ids=feature_ids)
+    assert isinstance(ax, Axes)
+    assert len(ax.images) == 1  # the heatmap
+    # One assignment outline per feature.
+    assert len(ax.patches) == len(feature_ids)
     plt.close("all")

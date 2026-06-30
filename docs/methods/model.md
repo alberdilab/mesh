@@ -92,6 +92,67 @@ $$
 
 This is implemented by {func}`mesh.spatial_betabinomial` (the `m0` seed model).
 
+## Multiple features on shared fields — coregionalization
+
+The two models above fit **one feature** and recover **one** patch size. The
+**coregionalization** model fits **several features at once** over **multiple**
+shared latent fields, so the inference can *separate co-existing spatial scales*
+and read out *which features share a territory*. This is the
+[M1+ milestone](../roadmap.md) and the entry point for co-segregation questions
+(worked through in [the co-segregation case study](../cases/co-segregation.md)).
+
+It is a **linear model of coregionalization**. There are $K$ unit-variance
+Matérn fields $f_1, \dots, f_K$, each with its own range $\ell_k$. A
+feature-by-field **loadings** matrix $W \in \mathbb{R}^{J \times K}$ mixes them
+into the $J$ features; for feature $j$ at location $i$ the abundance model
+becomes
+
+$$
+\log \mu_{ji} = \beta_j + \underbrace{\log d_i + \log L_{\text{feat}}}_{\text{offset}}
+                + \sum_{k=1}^{K} W_{jk}\, f_k(\mathbf{s}_i),
+\qquad
+y_{ji} \sim \text{NegBinomial2}(\mu_{ji}, \phi).
+$$
+
+The fields are unit-variance, so the **loadings carry the amplitude**: each
+feature's spatial signal is split across scales by its row of $W$. The structure
+of $W$ reads out ecology directly — features that load on the *same* field occupy
+the *same* patches (a shared niche, cross-feeding, syntrophy, or co-residence on
+one mobile element); features that load with *opposite* sign anti-segregate
+(competition, niche partitioning).
+
+### Identifiability — ordered ranges, free sign
+
+Two symmetries would otherwise make the posterior unidentifiable, and MESH
+handles each:
+
+- **Which field is which.** Swapping two fields (and the matching columns of $W$)
+  leaves the likelihood unchanged. MESH samples the ranges **ordered**,
+  $\ell_1 < \ell_2 < \dots < \ell_K$, which pins each field to a *specific* scale
+  so a feature can be assigned to one.
+- **The sign of a field.** Flipping $f_k$ and column $k$ of $W$ together is also
+  invariant. This sign is left **free** — it does not affect the ranges or
+  *which* features share a field. Read assignment from the loading **magnitudes**
+  $|W|$ ({func}`mesh.summarize_loadings`, {func}`mesh.plot_loadings`); the
+  *relative* sign within a single posterior draw still carries the co- vs.
+  anti-segregation distinction.
+
+A third issue is not a symmetry but a **runaway mode**: a range drifting past the
+sampling extent makes the Matérn correlation matrix all-ones, so the field
+flattens to a constant the per-feature intercepts absorb, and its range floats
+off to the prior edge — collapsing the feature assignment. Each range is
+therefore softly **bounded at the spatial extent** of the samples (a patch larger
+than your sampling area is unidentifiable anyway), which removes that basin and
+makes recovery seed-robust without distorting the prior below the extent.
+
+This is implemented by {func}`mesh.coregionalized_negbinomial`. Build its array
+inputs from a **multi-feature** table with {func}`mesh.coregion_counts_arrays`,
+and recover the feature row order with {func}`mesh.coregion_feature_order`. As
+with the single-field models, it ships with a known-truth generator
+({func}`mesh.simulate_coregionalized`) and a recovery test that confirms it
+resolves both ranges and assigns every feature to the right field (see
+[simulation & recovery](simulation.md)).
+
 ## Priors
 
 The priors are **weakly informative** and documented in the function docstrings.
@@ -124,6 +185,10 @@ The most important is the **range** prior, which sits on the micron scale.
 * - precision $\kappa$ (BB)
   - $\text{HalfNormal}(100)$
   - Overdispersion of allele frequencies.
+* - loadings $W$ (coregion)
+  - $\mathcal{N}(0, 1)$
+  - Feature-by-field loadings; carry the per-field amplitude (the shared fields
+    are unit-variance). The $K$ ranges are sampled **ordered**.
 ```
 
 :::{admonition} Choosing the range prior

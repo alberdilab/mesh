@@ -22,6 +22,10 @@ architecture from the *same* fit:
 * **whether two features share a scale** -- e.g. a function's patch vs. a
   genotype's territory (:func:`plot_scale_comparison`).
 
+For the **coregionalization** model (several features on shared fields), one more
+view shows **which feature loads on which field** -- the feature-to-field
+loading matrix (:func:`plot_loadings`).
+
 Every function takes an optional ``ax`` and returns the :class:`~matplotlib.axes.Axes`
 it drew on, so plots compose into multi-panel figures. ``matplotlib`` is pulled
 in transitively by ``arviz``; import this module only when you want to plot.
@@ -46,6 +50,7 @@ __all__ = [
     "plot_amplitude_posterior",
     "plot_variance_partition",
     "plot_scale_comparison",
+    "plot_loadings",
     "plot_field",
     "plot_matern_correlation",
     "posterior_field_mean",
@@ -389,6 +394,94 @@ def plot_scale_comparison(
     ax.set_ylabel("posterior density")
     ax.set_title(title if title is not None else f"{var_name} across fits")
     ax.legend(frameon=False, fontsize="small")
+    return ax
+
+
+def plot_loadings(
+    idata: az.InferenceData,
+    feature_ids: Sequence[str] | None = None,
+    *,
+    var_name: str = "loadings",
+    ax: Axes | None = None,
+    cmap: str = "magma",
+    title: str | None = None,
+) -> Axes:
+    """Heatmap of the coregionalization loadings -- which feature shares which field.
+
+    For :func:`mesh.coregionalized_negbinomial`, draws the posterior mean of the
+    **loading magnitudes** ``|W|`` (features x fields) as a heatmap, and outlines
+    each feature's **assigned field** (the one it loads on most strongly).
+    Features sharing a column share a spatial territory; the magnitude is how
+    strongly. Magnitudes are used because the per-field sign is not identified
+    (see :func:`mesh.summarize_loadings`).
+
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        Posterior carrying a ``loadings`` variable of shape ``(J, n_fields)``.
+    feature_ids : sequence of str, optional
+        Feature labels in the model's row order (sorted ``feature_id``; see
+        :func:`mesh.fit.coregion_feature_order`). Defaults to ``feature0`` ... .
+    var_name : str
+        Name of the loadings variable.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on; a new one is created if omitted.
+    cmap : str
+        Matplotlib colourmap for the magnitudes.
+    title : str, optional
+        Axes title.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes drawn on.
+    """
+    draws = np.asarray(idata.posterior[var_name].values)
+    flat = draws.reshape(-1, draws.shape[-2], draws.shape[-1])
+    n_features, n_fields = flat.shape[1], flat.shape[2]
+    if feature_ids is None:
+        feature_ids = [f"feature{j}" for j in range(n_features)]
+
+    abs_mean = np.mean(np.abs(flat), axis=0)  # (J, n_fields)
+    assigned = np.argmax(abs_mean, axis=1)
+
+    if ax is None:
+        _, ax = plt.subplots(figsize=(1.1 * n_fields + 2.5, 0.55 * n_features + 1.6))
+
+    im = ax.imshow(abs_mean, aspect="auto", cmap=cmap, vmin=0.0)
+    threshold = 0.6 * float(abs_mean.max())
+    for j in range(n_features):
+        for k in range(n_fields):
+            ax.text(
+                k,
+                j,
+                f"{abs_mean[j, k]:.2f}",
+                ha="center",
+                va="center",
+                color="white" if abs_mean[j, k] < threshold else "black",
+                fontsize="small",
+            )
+        ax.add_patch(
+            plt.Rectangle(
+                (assigned[j] - 0.5, j - 0.5),
+                1,
+                1,
+                fill=False,
+                edgecolor="#39d353",
+                lw=2.5,
+            )
+        )
+
+    ax.set_xticks(range(n_fields))
+    ax.set_xticklabels([f"field {k}" for k in range(n_fields)])
+    ax.set_yticks(range(n_features))
+    ax.set_yticklabels(list(feature_ids))
+    ax.set_xlabel("latent field (spatial scale)")
+    cbar = ax.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("posterior mean |loading|")
+    ax.set_title(
+        title if title is not None else "Feature-to-field loadings (assignment outlined)"
+    )
     return ax
 
 

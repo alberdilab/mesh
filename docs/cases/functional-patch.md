@@ -123,9 +123,10 @@ is, not by shallow samples masquerading as zeros.
 This single-function, single-scale analysis is Milestone 0/1. As MESH expands,
 the *same gut-wall dataset* will support richer questions:
 
-- [ ] **Co-segregating functions** ([coregionalization](../roadmap.md)) — fit
-      several gene families jointly and ask *which functions share a patch size*,
-      pointing to a common structuring process or a shared guild.
+- [x] **Co-segregating functions** ([coregionalization](co-segregation.md)) —
+      *available now*: fit several gene families jointly and ask *which functions
+      share a patch size*, pointing to a common structuring process or a shared
+      guild. Worked through in [Case 3](co-segregation.md).
 - [ ] **Multiple scales at once** — partition a function's spatial variance
       across a fine and a coarse scale (micro-architecture *and* the gross
       gradient) instead of reporting one range.

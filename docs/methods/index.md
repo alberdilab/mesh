@@ -49,11 +49,14 @@ output interpretable and the inference honest at the scale of data MESH targets:
 
 ## Scope of the current milestone
 
-The implemented models (M0/M1) fit a **single** Matérn field with **one** range.
-Multi-scale fields, crossed organizational groupings, multi-host hierarchical
-GPs and multi-omics are later milestones (see the [roadmap](../roadmap.md)) and
-are intentionally **not** present yet. There is no SPDE/sparse/variational-GP
-machinery and no GPU-specific code.
+The single-feature models (M0/M1) fit **one** Matérn field with **one** range.
+The **coregionalization** model (M1+) extends this to several features over
+**multiple ordered fields**, separating co-existing scales
+({func}`mesh.coregionalized_negbinomial`). Still ahead: a clean multi-scale
+variance partition of a single feature, crossed organizational groupings,
+multi-host hierarchical GPs and multi-omics — later milestones (see the
+[roadmap](../roadmap.md)), intentionally **not** present yet. There is no
+SPDE/sparse/variational-GP machinery and no GPU-specific code.
 
 ```{toctree}
 :hidden:

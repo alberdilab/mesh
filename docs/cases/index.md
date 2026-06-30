@@ -4,8 +4,8 @@ These worked cases show MESH end-to-end on biologically motivated questions:
 the system, the scientific question, the table MESH consumes, the analysis, and
 how to read the answer. They are **living examples** — each one is written to
 *grow* as MESH gains capabilities, so the same biological story will gain new
-analyses at later [milestones](../roadmap.md) (coregionalization, multi-scale
-partitions, multi-host pooling, 3D).
+analyses at later [milestones](../roadmap.md) (multi-scale partitions, multi-host
+pooling, 3D).
 
 :::{admonition} These cases use simulated data
 :class: note
@@ -22,7 +22,7 @@ regenerate them with `python examples/plot_cases.py` (writes into
 `docs/_static/cases/`).
 :::
 
-## The two cases
+## The three cases
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -44,6 +44,15 @@ frequencies** at a variant site, modelled coverage-aware with the beta-binomial
 likelihood — sub-species resolution.
 :::
 
+:::{grid-item-card} {octicon}`share-android` Co-segregating functions
+:link: co-segregation
+:link-type: doc
+
+*Which functions share a territory, and at what scale?* Several gene families
+fit **jointly** with the coregionalization model — separating two co-existing
+scales and assigning each feature to its field.
+:::
+
 ::::
 
 ## How to read a case
@@ -62,4 +71,5 @@ section tied to the roadmap:
 
 functional-patch
 strain-territory
+co-segregation
 ```

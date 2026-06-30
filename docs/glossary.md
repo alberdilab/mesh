@@ -58,7 +58,10 @@ beta-binomial
 
 coregionalization
   Letting multiple features load onto shared latent fields so they can
-  co-segregate. The subject of the next milestone (see {doc}`roadmap`).
+  co-segregate. Implemented by {func}`mesh.coregionalized_negbinomial`, which
+  fits several features over multiple ordered Matérn fields and reports which
+  feature loads on which field (see the {doc}`co-segregation case study
+  <cases/co-segregation>`).
 
 InferenceData
   The [ArviZ](https://python.arviz.org/) container returned by

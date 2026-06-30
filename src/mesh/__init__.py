@@ -40,6 +40,7 @@ from .model import (
 from .plots import (
     plot_amplitude_posterior,
     plot_field,
+    plot_loadings,
     plot_matern_correlation,
     plot_range_posterior,
     plot_samples,
@@ -107,6 +108,7 @@ __all__ = [
     "plot_amplitude_posterior",
     "plot_variance_partition",
     "plot_scale_comparison",
+    "plot_loadings",
     "plot_field",
     "plot_matern_correlation",
     "posterior_field_mean",

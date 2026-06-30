@@ -19,21 +19,28 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from mesh import (
     allele_arrays,
+    coregion_counts_arrays,
+    coregion_feature_order,
+    coregionalized_negbinomial,
     counts_arrays,
     fit_model,
     plot_field,
+    plot_loadings,
     plot_matern_correlation,
     plot_range_posterior,
     plot_samples,
     plot_scale_comparison,
     posterior_field_mean,
     simulate_allele,
+    simulate_coregionalized,
     simulate_counts,
     spatial_betabinomial,
     spatial_negbinomial,
+    summarize_loadings,
     summarize_range,
     validate_table,
 )
@@ -114,11 +121,58 @@ def function_vs_genotype(idata_function, idata_genotype):
     plt.close(fig)
 
 
+def co_segregation():
+    """Case 3 — coregionalization; four functions on two scales (80 & 280 µm)."""
+    sim = simulate_coregionalized(
+        n_samples=220, ranges=(80.0, 280.0), domain=800.0, seed=0
+    )
+    df = sim.table
+    validate_table(df)
+    feature_ids = coregion_feature_order(df)
+    idata = fit_model(
+        coregionalized_negbinomial,
+        num_warmup=800, num_samples=800, num_chains=2, seed=0,
+        target_accept_prob=0.95, n_fields=2,
+        progress_bar=False, **coregion_counts_arrays(df),
+    )
+
+    print("Case 3 — co-segregation:")
+    range_draws = np.asarray(idata.posterior["range"].values)  # (chain, draw, 2)
+    for k, true_range in enumerate((80.0, 280.0)):
+        flat = range_draws[:, :, k].reshape(-1)
+        lo, hi = np.quantile(flat, [0.025, 0.975])
+        print(
+            f"  field {k}: range mean {flat.mean():6.1f} µm "
+            f"(95% {lo:5.1f}–{hi:5.1f}), truth {true_range:.0f}"
+        )
+    print(summarize_loadings(idata, feature_ids=feature_ids).to_string(index=False))
+
+    fig, axes = plt.subplots(2, 2, figsize=(11, 9))
+    plot_samples(
+        df[df["feature_id"] == feature_ids[0]], value="count",
+        ax=axes[0, 0], title=f"Input: counts for {feature_ids[0]}",
+    )
+    plot_loadings(idata, feature_ids=feature_ids, ax=axes[0, 1])
+    plot_field(
+        sim.coords, posterior_field_mean(idata, var_name="field0"),
+        ax=axes[1, 0], title="Inferred fine field (field 0, ≈80 µm)",
+    )
+    plot_field(
+        sim.coords, posterior_field_mean(idata, var_name="field1"),
+        ax=axes[1, 1], title="Inferred broad field (field 1, ≈280 µm)",
+    )
+    fig.tight_layout()
+    fig.savefig(OUT / "co-segregation.png", dpi=150)
+    plt.close(fig)
+    return idata
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     idata_function = functional_patch()
     idata_genotype = strain_territory()
     function_vs_genotype(idata_function, idata_genotype)
+    co_segregation()
     print(f"Saved case figures to {OUT}")
 
 

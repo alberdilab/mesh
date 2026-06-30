@@ -79,10 +79,14 @@ mobile element, or functions responding to the same micro-gradient.
 :::{admonition} Scope note
 :class: note
 
-In the current milestone (M0/M1) MESH fits a **single** latent field per feature
-and recovers **one** patch size. Multi-feature shared loadings
-(*coregionalization*) and the separation of **multiple co-existing scales** are
-the next milestones — see the [roadmap](../roadmap.md).
+Co-segregation across **multiple features on shared fields** —
+*coregionalization* — is implemented: {func}`mesh.coregionalized_negbinomial`
+fits several features over multiple ordered Matérn fields, separating co-existing
+scales and reporting which feature loads on which field (worked through in the
+[co-segregation case study](../cases/co-segregation.md)). The single-field models
+remain the entry point for one feature at a time. A clean variance *partition* of
+one feature across several scales is still a later milestone — see the
+[roadmap](../roadmap.md).
 :::
 
 ## From genes to genotypes

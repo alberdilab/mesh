@@ -120,10 +120,11 @@ frequency field. **Bottom-right:** the implied spatial correlation decay.
 
 ## Function meets genotype — today
 
-You do not have to wait for coregionalization to put the two cases together.
-With both fits in hand, {func}`mesh.plot_scale_comparison` overlays the
-function's patch ([Case 1](functional-patch.md)) and the strain's territory on a
-single axis, so you compare **credible intervals, not point estimates**:
+Even without a joint model, you can put the two cases together. With both fits in
+hand, {func}`mesh.plot_scale_comparison` overlays the function's patch
+([Case 1](functional-patch.md)) and the strain's territory on a single axis, so
+you compare **credible intervals, not point estimates** (to infer co-segregation
+*jointly* instead, see [coregionalization](co-segregation.md)):
 
 ```python
 from mesh import plot_scale_comparison
@@ -152,16 +153,19 @@ co-occur.)
 Today this resolves **one** variant site at **one** scale. The same variant
 dataset will support more as MESH expands:
 
-- [ ] **Linked variants** ([coregionalization](../roadmap.md)) — fit many sites
-      jointly and find variants that share a territory, i.e. that travel together
-      as a **strain/haplotype**.
+- [x] **Linked variants** ([coregionalization](co-segregation.md)) — *available
+      now*: fit many features jointly on shared fields and find those that share a
+      territory, i.e. that travel together as a **strain/haplotype**. Demonstrated
+      for functions in [Case 3](co-segregation.md); the same model applies to
+      allele features.
 - [ ] **Residence covariate** — annotate each variant by the contig / mobile
       element it sits on and ask whether territory size is set by the genomic
       context (a future *linkage* covariate, not a modelling unit).
 - [x] **Function meets genotype (scale)** — *available now*: compare a function's
-      patch and a genotype's territory by overlaying their ranges (above). The
-      next step puts them on **shared fields** so co-segregation is inferred
-      jointly rather than compared after the fact.
+      patch and a genotype's territory by overlaying their ranges (above). To go
+      further, [coregionalization](co-segregation.md) puts features on **shared
+      fields** so co-segregation is inferred jointly rather than compared after
+      the fact — see [Case 3](co-segregation.md).
 - [ ] **Across hosts** — compare strain-territory sizes between individuals.
 - [ ] **3D** — territories as volumes.
 
