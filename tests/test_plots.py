@@ -22,12 +22,14 @@ from mesh.fit import (
     fit_model,
 )
 from mesh.model import (
+    anisotropic_negbinomial,
     coregionalized_negbinomial,
     spatial_betabinomial,
     spatial_negbinomial,
 )
 from mesh.plots import (
     plot_amplitude_posterior,
+    plot_anisotropy,
     plot_field,
     plot_loadings,
     plot_matern_correlation,
@@ -37,8 +39,13 @@ from mesh.plots import (
     plot_variance_partition,
     posterior_field_mean,
 )
-from mesh.simulate import simulate_allele, simulate_coregionalized, simulate_counts
-from mesh.summaries import decompose_variance, variance_partition
+from mesh.simulate import (
+    simulate_allele,
+    simulate_anisotropic,
+    simulate_coregionalized,
+    simulate_counts,
+)
+from mesh.summaries import decompose_variance, summarize_anisotropy, variance_partition
 
 
 @pytest.fixture(scope="module")
@@ -82,6 +89,23 @@ def coregion_fit():
         num_chains=1,
         seed=3,
         n_fields=2,
+        **arrays,
+    )
+    return sim, idata
+
+
+@pytest.fixture(scope="module")
+def anisotropic_fit():
+    sim = simulate_anisotropic(
+        n_samples=60, lengthscales=(280.0, 100.0), eta=1.2, seed=2
+    )
+    arrays = counts_arrays(sim.table)
+    idata = fit_model(
+        anisotropic_negbinomial,
+        num_warmup=100,
+        num_samples=100,
+        num_chains=1,
+        seed=2,
         **arrays,
     )
     return sim, idata
@@ -170,6 +194,25 @@ def test_plot_scale_comparison(fit, allele_fit):
     assert len(ax.lines) >= 2  # one mean line per fit
     with pytest.raises(ValueError):
         plot_scale_comparison([idata_counts, idata_allele], labels=["only-one"])
+    plt.close("all")
+
+
+def test_anisotropy_summary_and_plot(anisotropic_fit):
+    sim, idata = anisotropic_fit
+    summary = summarize_anisotropy(idata).set_index("quantity")
+    assert set(summary.index) == {
+        "range",
+        "ell_x",
+        "ell_y",
+        "anisotropy_ratio",
+        "prob_x_longer",
+    }
+    assert summary.loc["anisotropy_ratio"]["mean"] >= 1.0
+    assert 0.0 <= summary.loc["prob_x_longer"]["mean"] <= 1.0
+
+    ax = plot_anisotropy(idata, truth=sim.truth["lengthscales"])
+    assert isinstance(ax, Axes)
+    assert len(ax.lines) >= 2  # one mean line per axis
     plt.close("all")
 
 

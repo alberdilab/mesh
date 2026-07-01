@@ -24,12 +24,18 @@ import numpyro
 import numpyro.distributions as dist
 from jax import Array
 
-from .kernels import matern_kernel, pairwise_distances
+from .kernels import (
+    anisotropic_matern_kernel,
+    matern_kernel,
+    pairwise_distances,
+)
 
 __all__ = [
     "gp_field",
+    "gp_field_anisotropic",
     "spatial_betabinomial",
     "spatial_negbinomial",
+    "anisotropic_negbinomial",
     "coregionalized_negbinomial",
 ]
 
@@ -82,6 +88,52 @@ def gp_field(
     """
     n = coords.shape[0]
     k = matern_kernel(coords, lengthscale, nu=nu, variance=1.0, jitter=jitter)
+    chol = jnp.linalg.cholesky(k)
+    z = numpyro.sample(f"{name}_z", dist.Normal(0.0, 1.0).expand([n]).to_event(1))
+    f = eta * (chol @ z)
+    return numpyro.deterministic(name, f)
+
+
+def gp_field_anisotropic(
+    name: str,
+    coords: Array,
+    lengthscales: Array,
+    eta: Array,
+    nu: float = 1.5,
+    jitter: float = 1e-6,
+) -> Array:
+    """Sample a non-centred **anisotropic** Matern GP field.
+
+    Like :func:`gp_field`, but the correlation uses a **separate range per
+    coordinate axis** (:func:`mesh.anisotropic_matern_kernel`), so the patch
+    size can differ along ``x`` and ``y`` -- the *direction* axis of spatial
+    architecture.
+
+    Parameters
+    ----------
+    name : str
+        Base name for the sample sites.
+    coords : Array
+        ``(n, 2)`` coordinates in microns.
+    lengthscales : Array
+        Per-axis Matern ranges ``(ell_x, ell_y)`` (patch size along each axis).
+    eta : Array
+        Field standard deviation.
+    nu : float, optional
+        Matern smoothness (boundary sharpness), one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``.
+    jitter : float, optional
+        Diagonal jitter for Cholesky stability.
+
+    Returns
+    -------
+    Array
+        Field values with shape ``(n,)``.
+    """
+    n = coords.shape[0]
+    k = anisotropic_matern_kernel(
+        coords, lengthscales, nu=nu, variance=1.0, jitter=jitter
+    )
     chol = jnp.linalg.cholesky(k)
     z = numpyro.sample(f"{name}_z", dist.Normal(0.0, 1.0).expand([n]).to_event(1))
     f = eta * (chol @ z)
@@ -185,6 +237,86 @@ def spatial_negbinomial(
     concentration = numpyro.sample("concentration", dist.Gamma(2.0, 0.1))
 
     f = gp_field("f", coords, range_, eta, nu=nu, jitter=jitter)
+    mu = jnp.exp(intercept + log_offset + f)
+    numpyro.sample(
+        "obs",
+        dist.NegativeBinomial2(mu, concentration),
+        obs=counts,
+    )
+
+
+def anisotropic_negbinomial(
+    coords: Array,
+    counts: Array,
+    log_offset: Array,
+    *,
+    range_prior: tuple[float, float] = DEFAULT_RANGE_PRIOR,
+    eta_scale: float = 1.0,
+    anisotropy_scale: float = 1.0,
+    nu: float = 1.5,
+    jitter: float = 1e-6,
+) -> None:
+    r"""Directional (anisotropic) spatial abundance model (negative-binomial).
+
+    Same negative-binomial abundance model as :func:`spatial_negbinomial`, but
+    the latent field has a **separate patch size along each axis**, so it reads
+    out **direction**: does the feature organise along a host axis (proximal--
+    distal gut, crypt--villus, depth into a biofilm)? The field is axis-aligned;
+    orient the sampling frame to the host axis (a free rotation is a later
+    extension).
+
+    The two axis ranges are parameterised by an **overall** patch size and a
+    **signed anisotropy**, which are orthogonal and each identified from data:
+
+    .. math::
+
+        \ell_x = \ell\, e^{+\rho/2}, \qquad \ell_y = \ell\, e^{-\rho/2},
+
+    so :math:`\ell = \sqrt{\ell_x \ell_y}` is the geometric-mean range (the same
+    ``range`` the isotropic model reports) and :math:`e^{\rho} = \ell_x/\ell_y`
+    is the anisotropy. The prior on :math:`\rho` is centred at ``0`` (isotropy),
+    so directionality must be supported by the data rather than assumed.
+
+    Parameters
+    ----------
+    coords : Array
+        ``(n, 2)`` coordinates in microns.
+    counts : Array
+        Observed integer counts, shape ``(n,)``.
+    log_offset : Array
+        Per-sample log offset ``log(depth) + log(length)``, shape ``(n,)``.
+    range_prior : tuple of float, optional
+        ``(loc, scale)`` of the LogNormal prior on the **geometric-mean** range,
+        in log-microns.
+    eta_scale : float, optional
+        Scale of the ``HalfNormal`` prior on the field standard deviation.
+    anisotropy_scale : float, optional
+        Scale of the ``Normal(0, .)`` prior on the log anisotropy
+        :math:`\rho = \log(\ell_x/\ell_y)`. The default ``1.0`` is broad (an
+        axis ratio of ``e`` at one prior SD) while still shrinking toward
+        isotropy.
+    nu : float, optional
+        Matern smoothness (boundary sharpness) of the field, one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``.
+    jitter : float, optional
+        Diagonal jitter for Cholesky stability.
+    """
+    range_ = numpyro.sample("range", dist.LogNormal(*range_prior))
+    log_ratio = numpyro.sample("log_ratio", dist.Normal(0.0, anisotropy_scale))
+    eta = numpyro.sample("eta", dist.HalfNormal(eta_scale))
+    intercept = numpyro.sample("intercept", dist.Normal(0.0, 25.0))
+    concentration = numpyro.sample("concentration", dist.Gamma(2.0, 0.1))
+
+    # Split the overall (geometric-mean) range into per-axis ranges. The mean of
+    # log(ell_x) and log(ell_y) is log(range), so `range` keeps its meaning as
+    # the overall patch size and `log_ratio` carries only the direction.
+    ell_x = range_ * jnp.exp(0.5 * log_ratio)
+    ell_y = range_ * jnp.exp(-0.5 * log_ratio)
+    lengthscales = numpyro.deterministic("lengthscales", jnp.stack([ell_x, ell_y]))
+    # Signed axis ratio ell_x/ell_y: > 1 elongated along x, < 1 along y.
+    numpyro.deterministic("anisotropy", jnp.exp(log_ratio))
+
+    f = gp_field_anisotropic("f", coords, lengthscales, eta, nu=nu, jitter=jitter)
     mu = jnp.exp(intercept + log_offset + f)
     numpyro.sample(
         "obs",

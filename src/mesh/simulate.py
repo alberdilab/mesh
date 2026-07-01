@@ -15,13 +15,15 @@ import numpy as np
 import pandas as pd
 from scipy.special import expit
 
-from .kernels import matern_kernel
+from .kernels import anisotropic_matern_kernel, matern_kernel
 
 __all__ = [
     "SimulatedData",
     "draw_field",
+    "draw_field_anisotropic",
     "simulate_allele",
     "simulate_counts",
+    "simulate_anisotropic",
     "simulate_coregionalized",
 ]
 
@@ -83,6 +85,51 @@ def draw_field(
         Field values with shape ``(n,)``.
     """
     k = np.asarray(matern_kernel(coords, range_, nu=nu, variance=1.0, jitter=jitter))
+    chol = np.linalg.cholesky(k)
+    z = rng.standard_normal(coords.shape[0])
+    return eta * (chol @ z)
+
+
+def draw_field_anisotropic(
+    coords: np.ndarray,
+    lengthscales: tuple[float, float],
+    eta: float,
+    rng: np.random.Generator,
+    nu: float = 1.5,
+    jitter: float = 1e-6,
+) -> np.ndarray:
+    """Draw a zero-mean **anisotropic** Matern GP realisation.
+
+    Like :func:`draw_field`, but with a **separate range per axis**
+    (:func:`mesh.anisotropic_matern_kernel`), so the field is elongated along the
+    axis with the larger lengthscale.
+
+    Parameters
+    ----------
+    coords : numpy.ndarray
+        ``(n, 2)`` coordinates in microns.
+    lengthscales : tuple of float
+        Per-axis Matern ranges ``(ell_x, ell_y)`` in microns.
+    eta : float
+        Marginal standard deviation of the field.
+    rng : numpy.random.Generator
+        Random generator for reproducibility.
+    nu : float, optional
+        Matern smoothness (boundary sharpness), one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``.
+    jitter : float, optional
+        Diagonal jitter for Cholesky stability.
+
+    Returns
+    -------
+    numpy.ndarray
+        Field values with shape ``(n,)``.
+    """
+    k = np.asarray(
+        anisotropic_matern_kernel(
+            coords, np.asarray(lengthscales), nu=nu, variance=1.0, jitter=jitter
+        )
+    )
     chol = np.linalg.cholesky(k)
     z = rng.standard_normal(coords.shape[0])
     return eta * (chol @ z)
@@ -270,6 +317,104 @@ def simulate_counts(
     )
     truth = {
         "range": range_,
+        "eta": eta,
+        "nu": nu,
+        "intercept": intercept,
+        "concentration": concentration,
+        "domain": domain,
+    }
+    return SimulatedData(table=table, truth=truth, coords=coords, field=f)
+
+
+def simulate_anisotropic(
+    n_samples: int = 200,
+    lengthscales: tuple[float, float] = (300.0, 100.0),
+    eta: float = 1.0,
+    domain: float = 1000.0,
+    baseline_rate: float = 5e-8,
+    concentration: float = 10.0,
+    length: int = 1000,
+    mean_depth: float = 1e6,
+    depth_log_sd: float = 0.3,
+    feature_id: str = "feat0",
+    nu: float = 1.5,
+    seed: int = 0,
+    jitter: float = 1e-6,
+) -> SimulatedData:
+    """Simulate negative-binomial counts over an **anisotropic** Matern field.
+
+    Identical to :func:`simulate_counts` except the latent field has a **separate
+    patch size per axis** (``lengthscales = (ell_x, ell_y)``), so the field is
+    directional. This is the known-truth generator for
+    :func:`mesh.anisotropic_negbinomial`: the truth is the two axis ranges (and
+    hence the anisotropy ``ell_x/ell_y`` and the geometric-mean ``range``).
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of spatial microsamples.
+    lengthscales : tuple of float
+        True per-axis Matern ranges ``(ell_x, ell_y)`` in microns -- the
+        quantities to recover. The default ``(300, 100)`` is elongated 3x along
+        ``x``.
+    eta : float
+        Field standard deviation (on the log-mean scale).
+    domain : float
+        Side length of the square sampling domain, in microns.
+    baseline_rate : float
+        Expected count per (read x bp); sets the intercept ``log(baseline_rate)``.
+    concentration : float
+        NB2 concentration (dispersion); larger means closer to Poisson.
+    length : int
+        Feature length (bp), entering the offset.
+    mean_depth : float
+        Geometric-mean per-sample sequencing depth (reads).
+    depth_log_sd : float
+        Log-normal scatter of per-sample depth.
+    feature_id : str
+        Identifier for the (single) feature.
+    nu : float, optional
+        Matern smoothness (boundary sharpness) of the generating field, one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``.
+    seed : int
+        Random seed.
+    jitter : float, optional
+        Diagonal jitter for the field's Cholesky factor.
+
+    Returns
+    -------
+    SimulatedData
+        Table, truth dict (incl. ``lengthscales``, ``range`` = geometric mean,
+        ``anisotropy`` = ``ell_x/ell_y`` and ``nu``), coords and field.
+    """
+    rng = np.random.default_rng(seed)
+    coords = _coords(n_samples, domain, rng)
+    f = draw_field_anisotropic(coords, lengthscales, eta, rng, nu=nu, jitter=jitter)
+
+    depth = rng.lognormal(mean=np.log(mean_depth), sigma=depth_log_sd, size=n_samples)
+    intercept = float(np.log(baseline_rate))
+    log_mu = intercept + np.log(depth) + np.log(length) + f
+    mu = np.exp(log_mu)
+
+    prob = concentration / (concentration + mu)
+    counts = rng.negative_binomial(concentration, prob)
+
+    table = pd.DataFrame(
+        {
+            "feature_id": feature_id,
+            "sample_id": [f"s{i:04d}" for i in range(n_samples)],
+            "x": coords[:, 0],
+            "y": coords[:, 1],
+            "count": counts.astype(np.int64),
+            "depth": depth.astype(np.float64),
+            "length": np.full(n_samples, length, dtype=np.int64),
+        }
+    )
+    ell_x, ell_y = float(lengthscales[0]), float(lengthscales[1])
+    truth = {
+        "lengthscales": (ell_x, ell_y),
+        "range": float(np.sqrt(ell_x * ell_y)),
+        "anisotropy": ell_x / ell_y,
         "eta": eta,
         "nu": nu,
         "intercept": intercept,

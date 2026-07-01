@@ -73,9 +73,9 @@ def enable_parallel_chains(n: int) -> int:
     """
     if _jax_initialized():
         warnings.warn(
-            "JAX backend already initialised; enable_parallel_chains(%d) has no "
+            f"JAX backend already initialised; enable_parallel_chains({n}) has no "
             "effect. Call it earlier -- after `import mesh` but before the first "
-            "fit_model() (or any other JAX operation)." % n,
+            "fit_model() (or any other JAX operation).",
             UserWarning,
             stacklevel=2,
         )
@@ -100,10 +100,11 @@ def _resolve_chain_method(chain_method: str, num_chains: int) -> str:
     if n_devices >= num_chains:
         return "parallel"
     warnings.warn(
-        "chain_method='auto' requested %d chains but only %d JAX device(s) are "
-        "available; running them on one device with chain_method='vectorized'. "
-        "For true parallelism call mesh.enable_parallel_chains(%d) once, before "
-        "the first fit_model()." % (num_chains, n_devices, num_chains),
+        f"chain_method='auto' requested {num_chains} chains but only {n_devices} "
+        "JAX device(s) are available; running them on one device with "
+        f"chain_method='vectorized'. For true parallelism call "
+        f"mesh.enable_parallel_chains({num_chains}) once, before the first "
+        "fit_model().",
         UserWarning,
         stacklevel=3,
     )

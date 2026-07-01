@@ -50,6 +50,7 @@ __all__ = [
     "plot_amplitude_posterior",
     "plot_variance_partition",
     "plot_scale_comparison",
+    "plot_anisotropy",
     "plot_loadings",
     "plot_field",
     "plot_matern_correlation",
@@ -374,7 +375,7 @@ def plot_scale_comparison(
     if colors is None:
         colors = [f"C{i}" for i in range(len(idatas))]
 
-    for idata, label, color in zip(idatas, labels, colors):
+    for idata, label, color in zip(idatas, labels, colors, strict=False):
         draws = np.asarray(idata.posterior[var_name].values).reshape(-1)
         grid = np.linspace(draws.min(), draws.max(), 256)
         density = gaussian_kde(draws)(grid)
@@ -393,6 +394,80 @@ def plot_scale_comparison(
     ax.set_xlabel(f"{var_name}{unit}")
     ax.set_ylabel("posterior density")
     ax.set_title(title if title is not None else f"{var_name} across fits")
+    ax.legend(frameon=False, fontsize="small")
+    return ax
+
+
+def plot_anisotropy(
+    idata: az.InferenceData,
+    *,
+    truth: tuple[float, float] | None = None,
+    hdi_prob: float = 0.95,
+    ax: Axes | None = None,
+    colors: Sequence[str] = ("C0", "C3"),
+    title: str | None = None,
+) -> Axes:
+    """Overlay the per-axis patch-size posteriors -- the *direction* readout.
+
+    For :func:`mesh.anisotropic_negbinomial`, draws the posterior densities of
+    ``ell_x`` and ``ell_y`` (the patch size along each axis) on one panel. Well
+    separated densities mean a **directional** field (the feature organises along
+    the axis with the larger range); overlapping densities mean an effectively
+    isotropic field. The posterior mean of the folded axis ratio
+    ``max(ell_x, ell_y) / min(ell_x, ell_y)`` is shown in the title.
+
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        Posterior carrying the ``lengthscales`` deterministic ``(., ., 2)``.
+    truth : tuple of float, optional
+        Known ``(ell_x, ell_y)`` to mark with dashed vertical lines.
+    hdi_prob : float
+        Mass of the shaded highest-density interval per axis (default 0.95).
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on; a new one is created if omitted.
+    colors : sequence of str
+        Colours for the ``x`` and ``y`` densities.
+    title : str, optional
+        Axes title.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The axes drawn on.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(5.5, 3.5))
+
+    lengthscales = np.asarray(idata.posterior["lengthscales"].values)
+    lengthscales = lengthscales.reshape(-1, lengthscales.shape[-1])
+    per_axis = {"ell_x": lengthscales[:, 0], "ell_y": lengthscales[:, 1]}
+
+    for (label, draws), color in zip(per_axis.items(), colors, strict=False):
+        grid = np.linspace(draws.min(), draws.max(), 256)
+        density = gaussian_kde(draws)(grid)
+        hdi_low, hdi_high = az.hdi(draws, prob=hdi_prob)
+        ax.plot(grid, density, color=color, lw=1.8)
+        ax.fill_between(grid, density, color=color, alpha=0.10)
+        ax.axvspan(hdi_low, hdi_high, color=color, alpha=0.12)
+        ax.axvline(
+            float(np.mean(draws)),
+            color=color,
+            lw=1.5,
+            label=f"{label}: {np.mean(draws):.0f} [{hdi_low:.0f}, {hdi_high:.0f}]",
+        )
+    if truth is not None:
+        for value, color in zip(truth, colors, strict=False):
+            ax.axvline(value, color=color, ls="--", lw=1.3)
+
+    ratio = np.maximum(per_axis["ell_x"], per_axis["ell_y"]) / np.minimum(
+        per_axis["ell_x"], per_axis["ell_y"]
+    )
+    ax.set_xlabel("patch size per axis (microns)")
+    ax.set_ylabel("posterior density")
+    if title is None:
+        title = f"Direction (anisotropy ratio {np.mean(ratio):.1f}x)"
+    ax.set_title(title)
     ax.legend(frameon=False, fontsize="small")
     return ax
 

@@ -84,17 +84,41 @@ chain).
   Roughness is the reliably identifiable direction — confirming *extra* smoothness
   from noisy counts is intrinsically weaker (a rough kernel fits smooth data too).
 
+## Done — direction (anisotropy): organising along a host axis
+
+*Biological question: **does a feature organise along a host axis?*** The
+proximal–distal gut, the crypt–villus axis, or depth into a biofilm all impose a
+*direction* on spatial structure — patches elongated along one axis rather than
+round. The readout is the **anisotropy ratio** `ell_x/ell_y` (with a credible
+interval) and *which* axis is the long one.
+
+MESH models this as an **axis-aligned** anisotropic Matérn field: a separate
+patch size along each coordinate axis, staying inside the single-fit paradigm
+(same input table, same Matérn-GP machinery). The axes are not rotated — orient
+the sampling frame to the host axis; a free rotation is a later extension.
+
+- {func}`mesh.anisotropic_matern_kernel` / {func}`mesh.anisotropic_scaled_distances`
+  — a Matérn covariance with a **per-axis range** `(ell_x, ell_y)`; equal
+  lengthscales reduce it exactly to the isotropic {func}`mesh.matern_kernel`.
+- {func}`mesh.anisotropic_negbinomial` — the directional abundance model,
+  parameterised by an overall (geometric-mean) `range` and a signed log
+  anisotropy `log_ratio` with a prior centred at isotropy, so direction must be
+  supported by the data ({func}`mesh.gp_field_anisotropic` is the shared field).
+- {func}`mesh.simulate_anisotropic` — known-truth generator (default elongated
+  3× along `x`); {func}`mesh.summarize_anisotropy` reports the per-axis patch
+  sizes, the folded anisotropy ratio and which axis is longer;
+  {func}`mesh.plot_anisotropy` overlays the two per-axis posteriors.
+- Gating test (`tests/test_anisotropy.py`): both axis ranges recovered inside
+  their 95% intervals, the anisotropy resolved and its direction recovered.
+
 ## Later milestones — more axes of architecture
 
 Each item below is a distinct architecture axis, framed by the biological
 question it answers. They are described in the design overview and are
-intentionally **not** yet implemented. The first two stay inside the current
-single-fit paradigm (same input table, same Matérn-GP machinery) and are the
-cheapest to add.
+intentionally **not** yet implemented. The first one below stays inside the
+current single-fit paradigm (same input table, same Matérn-GP machinery) and is
+the cheapest to add.
 
-- **Direction (anisotropy)** — *does a feature organise along a host axis?*
-  Proximal–distal gut, crypt–villus, or depth into a biofilm. A per-axis
-  lengthscale (or a rotation) replaces the single isotropic `range`.
 - **Stationarity** — *is the grain constant, or are there zones?* Finer near a
   surface, coarser in a lumen. A non-stationary range, or region-wise fits.
 - **Multi-scale fields** — *is the architecture hierarchical?* A fine mosaic

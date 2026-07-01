@@ -17,8 +17,10 @@ from jax import Array
 
 __all__ = [
     "pairwise_distances",
+    "anisotropic_scaled_distances",
     "matern_kernel",
     "matern32_kernel",
+    "anisotropic_matern_kernel",
     "cholesky_factor",
     "MATERN_NU",
 ]
@@ -48,6 +50,69 @@ def pairwise_distances(coords: Array) -> Array:
     sq = jnp.sum(diff**2, axis=-1)
     # Clip tiny negative values from round-off before the square root.
     return jnp.sqrt(jnp.clip(sq, min=0.0))
+
+
+def anisotropic_scaled_distances(coords: Array, lengthscales: Array) -> Array:
+    r"""Per-axis-scaled (Mahalanobis) distances for an axis-aligned kernel.
+
+    Divides each coordinate axis by its own lengthscale *before* measuring
+    distance, so the returned matrix is the dimensionless separation
+
+    .. math::
+
+        u_{ij} = \sqrt{\sum_a \left(
+            \frac{s_{ia} - s_{ja}}{\ell_a} \right)^2 }.
+
+    Feeding :math:`u` to a Matern shape (with unit range) yields an
+    **axis-aligned anisotropic** field: the patch size is :math:`\ell_a` along
+    axis :math:`a`. With all lengthscales equal this reduces to
+    ``pairwise_distances(coords) / lengthscale`` -- the isotropic case.
+
+    Parameters
+    ----------
+    coords : Array
+        Coordinates with shape ``(n, d)``.
+    lengthscales : Array
+        Per-axis ranges, shape ``(d,)`` (e.g. ``[ell_x, ell_y]`` in microns).
+
+    Returns
+    -------
+    Array
+        Symmetric ``(n, n)`` matrix of scaled distances :math:`u`.
+    """
+    scaled = coords / lengthscales  # (n, d), each axis in its own range units
+    diff = scaled[:, None, :] - scaled[None, :, :]
+    sq = jnp.sum(diff**2, axis=-1)
+    return jnp.sqrt(jnp.clip(sq, min=0.0))
+
+
+def _matern_correlation(u: Array, nu: float) -> Array:
+    r"""Matern correlation as a function of the dimensionless lag ``u = r/ell``.
+
+    Shared radial shape for the isotropic (:func:`matern_kernel`) and
+    anisotropic (:func:`anisotropic_matern_kernel`) kernels, so both agree on
+    what a given smoothness ``nu`` means. Only the closed-form members of the
+    family are supported (no fractional-order Bessel ``K_nu``).
+
+    Raises
+    ------
+    ValueError
+        If ``nu`` is not one of the closed-form values in :data:`MATERN_NU`.
+    """
+    if nu == math.inf:
+        return jnp.exp(-0.5 * u**2)
+    if nu == 0.5:
+        return jnp.exp(-u)
+    if nu == 1.5:
+        s = jnp.sqrt(3.0) * u
+        return (1.0 + s) * jnp.exp(-s)
+    if nu == 2.5:
+        s = jnp.sqrt(5.0) * u
+        return (1.0 + s + s**2 / 3.0) * jnp.exp(-s)
+    raise ValueError(
+        f"nu={nu!r} has no closed-form Matern kernel; choose one of "
+        f"{MATERN_NU} (0.5, 1.5, 2.5, or math.inf for squared-exponential)."
+    )
 
 
 def matern_kernel(
@@ -109,22 +174,61 @@ def matern_kernel(
         If ``nu`` is not one of the closed-form values in :data:`MATERN_NU`.
     """
     d = pairwise_distances(coords)
-    if nu == math.inf:
-        corr = jnp.exp(-0.5 * (d / lengthscale) ** 2)
-    elif nu == 0.5:
-        corr = jnp.exp(-d / lengthscale)
-    elif nu == 1.5:
-        s = jnp.sqrt(3.0) * d / lengthscale
-        corr = (1.0 + s) * jnp.exp(-s)
-    elif nu == 2.5:
-        s = jnp.sqrt(5.0) * d / lengthscale
-        corr = (1.0 + s + s**2 / 3.0) * jnp.exp(-s)
-    else:
-        raise ValueError(
-            f"nu={nu!r} has no closed-form Matern kernel; choose one of "
-            f"{MATERN_NU} (0.5, 1.5, 2.5, or math.inf for squared-exponential)."
-        )
+    corr = _matern_correlation(d / lengthscale, nu)
     k = variance * corr
+    n = coords.shape[0]
+    return k + jitter * jnp.eye(n)
+
+
+def anisotropic_matern_kernel(
+    coords: Array,
+    lengthscales: Array,
+    nu: float = 1.5,
+    variance: Array | float = 1.0,
+    jitter: float = 1e-6,
+) -> Array:
+    r"""Axis-aligned **anisotropic** Matern covariance over 2D coordinates.
+
+    Same Matern family as :func:`matern_kernel`, but with a **separate range per
+    coordinate axis**: the patch size is :math:`\ell_x` along ``x`` and
+    :math:`\ell_y` along ``y``. This is the **direction** axis of spatial
+    architecture -- it answers whether a feature organises along a host axis
+    (proximal--distal gut, crypt--villus, depth into a biofilm). The covariance
+    is :math:`\sigma^2\, \rho_\nu(u_{ij})` with the per-axis-scaled lag
+    :math:`u` from :func:`anisotropic_scaled_distances`; with equal lengthscales
+    it is identical to the isotropic :func:`matern_kernel`.
+
+    The axes are **not** rotated: elongation is assumed aligned with ``x``/``y``
+    (orient the sampling frame to the host axis). A free rotation is a later
+    extension.
+
+    Parameters
+    ----------
+    coords : Array
+        Coordinates with shape ``(n, d)``.
+    lengthscales : Array
+        Per-axis ranges :math:`(\ell_x, \ell_y)` in the same units as ``coords``
+        (microns), shape ``(d,)``.
+    nu : float, optional
+        Matern smoothness, one of :data:`MATERN_NU`. Default ``1.5``.
+    variance : Array or float, optional
+        Marginal variance :math:`\sigma^2`. Defaults to ``1.0`` (correlation
+        matrix), for the non-centred parameterisation.
+    jitter : float, optional
+        Small value added to the diagonal for Cholesky stability.
+
+    Returns
+    -------
+    Array
+        Symmetric positive-definite ``(n, n)`` covariance matrix.
+
+    Raises
+    ------
+    ValueError
+        If ``nu`` is not one of the closed-form values in :data:`MATERN_NU`.
+    """
+    u = anisotropic_scaled_distances(coords, lengthscales)
+    k = variance * _matern_correlation(u, nu)
     n = coords.shape[0]
     return k + jitter * jnp.eye(n)
 

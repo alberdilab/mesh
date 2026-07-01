@@ -26,19 +26,24 @@ from .fit import (
 )
 from .kernels import (
     MATERN_NU,
+    anisotropic_matern_kernel,
+    anisotropic_scaled_distances,
     cholesky_factor,
     matern32_kernel,
     matern_kernel,
     pairwise_distances,
 )
 from .model import (
+    anisotropic_negbinomial,
     coregionalized_negbinomial,
     gp_field,
+    gp_field_anisotropic,
     spatial_betabinomial,
     spatial_negbinomial,
 )
 from .plots import (
     plot_amplitude_posterior,
+    plot_anisotropy,
     plot_field,
     plot_loadings,
     plot_matern_correlation,
@@ -51,12 +56,15 @@ from .plots import (
 from .schema import SchemaError, validate_table
 from .simulate import (
     SimulatedData,
+    draw_field_anisotropic,
     simulate_allele,
+    simulate_anisotropic,
     simulate_coregionalized,
     simulate_counts,
 )
 from .summaries import (
     decompose_variance,
+    summarize_anisotropy,
     summarize_loadings,
     summarize_parameters,
     summarize_range,
@@ -69,22 +77,28 @@ __all__ = [
     "__version__",
     # kernels
     "pairwise_distances",
+    "anisotropic_scaled_distances",
     "matern_kernel",
     "matern32_kernel",
+    "anisotropic_matern_kernel",
     "cholesky_factor",
     "MATERN_NU",
     # simulate
     "SimulatedData",
     "simulate_allele",
     "simulate_counts",
+    "simulate_anisotropic",
     "simulate_coregionalized",
+    "draw_field_anisotropic",
     # schema
     "SchemaError",
     "validate_table",
     # model
     "gp_field",
+    "gp_field_anisotropic",
     "spatial_betabinomial",
     "spatial_negbinomial",
+    "anisotropic_negbinomial",
     "coregionalized_negbinomial",
     # fit
     "fit_model",
@@ -101,6 +115,7 @@ __all__ = [
     "summarize_parameters",
     "decompose_variance",
     "variance_partition",
+    "summarize_anisotropy",
     "summarize_loadings",
     # plots
     "plot_samples",
@@ -108,6 +123,7 @@ __all__ = [
     "plot_amplitude_posterior",
     "plot_variance_partition",
     "plot_scale_comparison",
+    "plot_anisotropy",
     "plot_loadings",
     "plot_field",
     "plot_matern_correlation",

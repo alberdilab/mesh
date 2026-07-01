@@ -92,6 +92,54 @@ $$
 
 This is implemented by {func}`mesh.spatial_betabinomial` (the `m0` seed model).
 
+## Direction — anisotropic fields
+
+The models above use an **isotropic** field: one `range` in every direction, so
+patches are round. The **anisotropic** model gives the field a **separate patch
+size along each axis**, so it can read out *direction* — whether a feature
+organises along a host axis (the proximal–distal gut, the crypt–villus axis, or
+depth into a biofilm). The field is **axis-aligned**: elongation is assumed to
+lie along `x`/`y`, so orient the sampling frame to the host axis (a free rotation
+is a [later milestone](../roadmap.md)).
+
+The covariance replaces the single isotropic distance with a **per-axis-scaled**
+lag (implemented by {func}`mesh.anisotropic_matern_kernel`):
+
+$$
+\rho_\nu(u_{ij}), \qquad
+u_{ij} = \sqrt{\left(\frac{x_i - x_j}{\ell_x}\right)^2
+             + \left(\frac{y_i - y_j}{\ell_y}\right)^2},
+$$
+
+so the patch size is $\ell_x$ along `x` and $\ell_y$ along `y`. With
+$\ell_x = \ell_y$ this is exactly the isotropic {func}`mesh.matern_kernel`.
+
+### Overall size × signed anisotropy
+
+Rather than sampling $\ell_x$ and $\ell_y$ directly, MESH parameterizes them by
+an **overall** patch size and a **signed anisotropy**, which are orthogonal and
+each identified from the data:
+
+$$
+\ell_x = \ell\, e^{+\rho/2}, \qquad \ell_y = \ell\, e^{-\rho/2},
+$$
+
+so $\ell = \sqrt{\ell_x \ell_y}$ is the geometric-mean `range` — the *same*
+quantity the isotropic model reports — and $e^{\rho} = \ell_x/\ell_y$ is the
+anisotropy. The prior on $\rho = \log(\ell_x/\ell_y)$ is
+$\mathcal{N}(0, \sigma_\rho)$, **centred at isotropy** ($\rho = 0$), so a
+directional reading has to be supported by the data rather than assumed; the two
+coordinate axes are physically distinct, so no ordering is needed to identify
+which is which.
+
+This is implemented by {func}`mesh.anisotropic_negbinomial` (with the shared
+non-centred field {func}`mesh.gp_field_anisotropic`). Read the result with
+{func}`mesh.summarize_anisotropy` — the per-axis patch sizes, the folded
+**anisotropy ratio** $\max(\ell_x,\ell_y)/\min(\ell_x,\ell_y)$ (how directional)
+and `prob_x_longer` (which axis) — or {func}`mesh.plot_anisotropy`. As with the
+other layers it ships with a known-truth generator
+({func}`mesh.simulate_anisotropic`) and a recovery test.
+
 ## Multiple features on shared fields — coregionalization
 
 The two models above fit **one feature** and recover **one** patch size. The
@@ -185,6 +233,10 @@ The most important is the **range** prior, which sits on the micron scale.
 * - precision $\kappa$ (BB)
   - $\text{HalfNormal}(100)$
   - Overdispersion of allele frequencies.
+* - log anisotropy $\rho$ (aniso)
+  - $\mathcal{N}(0, 1)$
+  - $\rho = \log(\ell_x/\ell_y)$; centred at isotropy so direction is
+    data-driven. One prior SD is an axis ratio of $e \approx 2.7$.
 * - loadings $W$ (coregion)
   - $\mathcal{N}(0, 1)$
   - Feature-by-field loadings; carry the per-field amplitude (the shared fields

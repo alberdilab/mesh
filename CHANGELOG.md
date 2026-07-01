@@ -8,6 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Direction (anisotropy)** — infer whether a feature organises along a host
+  axis (proximal–distal gut, crypt–villus, depth into a biofilm) instead of
+  assuming an isotropic patch. The field is an **axis-aligned** anisotropic
+  Matérn GP: a separate patch size along each coordinate axis. Orient the
+  sampling frame to the host axis (a free rotation is a later extension).
+  - `mesh.anisotropic_matern_kernel(coords, lengthscales, nu=...)` and
+    `mesh.anisotropic_scaled_distances` — a Matérn covariance with a **per-axis
+    range** `(ell_x, ell_y)`; with equal lengthscales it is identical to the
+    isotropic `mesh.matern_kernel`. The closed-form Matérn radial shape is now
+    shared between the two kernels (same `nu` meaning).
+  - `mesh.anisotropic_negbinomial` — the directional abundance model.
+    Parameterised by an **overall** (geometric-mean) `range` and a **signed log
+    anisotropy** `log_ratio = log(ell_x / ell_y)` with a `Normal(0, .)` prior
+    centred at isotropy, so direction must be supported by the data. Exposes
+    deterministic `lengthscales` and `anisotropy` (= `ell_x/ell_y`).
+    `mesh.gp_field_anisotropic` is the shared non-centred field.
+  - `mesh.simulate_anisotropic` / `mesh.draw_field_anisotropic` — known-truth
+    generator for the model (default: elongated 3× along `x`), recording the
+    per-axis `lengthscales`, the geometric-mean `range` and the `anisotropy`.
+  - `mesh.summarize_anisotropy` — tidy per-axis patch sizes with the folded
+    `anisotropy_ratio` (how directional) and `prob_x_longer` (which axis).
+  - `mesh.plot_anisotropy` — overlays the `ell_x` and `ell_y` posteriors.
+  - Gating recovery test (`tests/test_anisotropy.py`): a field elongated 3× along
+    `x`, asserting both axis ranges land in their 95% intervals, the anisotropy
+    is resolved, and its direction (`x` longer) is recovered; plus deterministic
+    kernel checks (isotropic reduction and directional decorrelation).
 - **Boundary sharpness (Matérn smoothness ν)** — infer whether patches have
   crisp edges or fade as gradients instead of fixing the smoothness at 3/2.
   Small ν = rough field = crisp boundaries (competitive exclusion or a

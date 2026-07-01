@@ -23,6 +23,7 @@ __all__ = [
     "summarize_parameters",
     "decompose_variance",
     "variance_partition",
+    "summarize_anisotropy",
     "summarize_loadings",
 ]
 
@@ -212,6 +213,89 @@ def variance_partition(
                 "hdi_prob": hdi_prob,
             }
         )
+    return pd.DataFrame(rows)
+
+
+def summarize_anisotropy(
+    idata: az.InferenceData,
+    hdi_prob: float = 0.95,
+) -> pd.DataFrame:
+    """Summarise the directional (anisotropic) fit: per-axis patch sizes.
+
+    For :func:`mesh.anisotropic_negbinomial`, the field has a separate range
+    along each axis. This returns one tidy row per quantity:
+
+    * ``range`` -- the geometric-mean patch size (comparable to the isotropic
+      model's ``range``);
+    * ``ell_x``, ``ell_y`` -- the per-axis patch sizes (microns);
+    * ``anisotropy_ratio`` -- the **folded** axis ratio
+      ``max(ell_x, ell_y) / min(ell_x, ell_y)`` (always :math:`\\ge 1`); ``1``
+      means isotropic, larger means more directional;
+    * ``prob_x_longer`` -- the posterior probability that ``x`` is the long
+      axis, i.e. the *direction* of the anisotropy (near ``0`` or ``1`` = a
+      confident direction; near ``0.5`` = undetermined). For this row the
+      spread columns are ``NaN`` (it is a single probability, not a posterior).
+
+    Read directionality from both: ``anisotropy_ratio`` says **how** directional,
+    ``prob_x_longer`` (with the ``ell_x``/``ell_y`` intervals) says **along which
+    axis**.
+
+    Parameters
+    ----------
+    idata : arviz.InferenceData
+        Posterior from :func:`mesh.fit.fit_model` on
+        :func:`mesh.anisotropic_negbinomial` (carrying ``range`` and the
+        ``lengthscales`` deterministic).
+    hdi_prob : float
+        Mass of the highest-density credible interval (default 0.95).
+
+    Returns
+    -------
+    pandas.DataFrame
+        Rows ``range, ell_x, ell_y, anisotropy_ratio, prob_x_longer`` with
+        ``mean, median, sd, hdi_low, hdi_high, hdi_prob``.
+    """
+    post = idata.posterior
+    range_ = np.asarray(post["range"].values).reshape(-1)
+    lengthscales = np.asarray(post["lengthscales"].values)
+    # (chain, draw, 2) -> (samples, 2).
+    lengthscales = lengthscales.reshape(-1, lengthscales.shape[-1])
+    ell_x = lengthscales[:, 0]
+    ell_y = lengthscales[:, 1]
+    ratio = np.maximum(ell_x, ell_y) / np.minimum(ell_x, ell_y)
+    prob_x_longer = float(np.mean(ell_x > ell_y))
+
+    draws = {
+        "range": range_,
+        "ell_x": ell_x,
+        "ell_y": ell_y,
+        "anisotropy_ratio": ratio,
+    }
+    rows = []
+    for name, col in draws.items():
+        hdi_low, hdi_high = az.hdi(col, prob=hdi_prob)
+        rows.append(
+            {
+                "quantity": name,
+                "mean": float(np.mean(col)),
+                "median": float(np.median(col)),
+                "sd": float(np.std(col)),
+                "hdi_low": float(hdi_low),
+                "hdi_high": float(hdi_high),
+                "hdi_prob": hdi_prob,
+            }
+        )
+    rows.append(
+        {
+            "quantity": "prob_x_longer",
+            "mean": prob_x_longer,
+            "median": np.nan,
+            "sd": np.nan,
+            "hdi_low": np.nan,
+            "hdi_high": np.nan,
+            "hdi_prob": hdi_prob,
+        }
+    )
     return pd.DataFrame(rows)
 
 
