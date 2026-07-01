@@ -201,6 +201,34 @@ with the single-field models, it ships with a known-truth generator
 resolves both ranges and assigns every feature to the right field (see
 [simulation & recovery](simulation.md)).
 
+## Composing the axes
+
+The models above read as four things, but under the hood they are **one field
+core plus a likelihood**. The latent spatial contribution — the part that
+differs between them — is built once, from three orthogonal knobs:
+
+| knob | meaning | values |
+|---|---|---|
+| `n_fields` | co-existing scales | `1` (single field) … `K` (coregionalization) |
+| `anisotropic` | direction | isotropic · per-axis ranges |
+| `nu` | boundary sharpness | fixed per fit, LOO-selected |
+
+crossed with one or many features (single vs. multi-feature `counts`). Because
+these are independent, {func}`mesh.spatial_negbinomial` exposes all of them and
+they **combine freely** — including crossings no single earlier model could
+express, such as a *directional multi-scale* fit
+(`spatial_negbinomial(..., anisotropic=True, n_fields=2)`) or smoothness
+selection over an *anisotropic* fit
+(`compare_smoothness(spatial_negbinomial, anisotropic=True, ...)`).
+
+{func}`mesh.anisotropic_negbinomial` and {func}`mesh.coregionalized_negbinomial`
+remain as named presets (thin wrappers with the same parameters), so the earlier
+examples keep working unchanged. One deliberate seam: the single-field regime
+keeps a **positive amplitude** `eta` (its sign is fixable, so the posterior stays
+unimodal), while the multi-field regime uses **signed loadings** whose magnitude
+carries assignment — the identifiability structure each regime needs, not an
+accident of history.
+
 ## Priors
 
 The priors are **weakly informative** and documented in the function docstrings.

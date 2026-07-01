@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Composable field core** — the architecture axes are no longer separate,
+  mutually exclusive models. A shared field builder now lets number of scales,
+  direction and boundary sharpness combine on one likelihood, so previously
+  impossible crossings work:
+  - `mesh.spatial_negbinomial` is the single composable entry point. It accepts
+    `n_fields` (co-existing scales), `anisotropic` (per-axis ranges), and `nu`
+    (smoothness), and detects single- vs multi-feature counts from the shape of
+    `counts` (`(n,)` vs `(J, n)`). E.g. `spatial_negbinomial(..., anisotropic=True,
+    n_fields=2)` is a **directional multi-scale** model, and
+    `compare_smoothness(spatial_negbinomial, anisotropic=True, ...)` selects the
+    smoothness of an **anisotropic** fit — neither expressible before.
+  - `mesh.anisotropic_negbinomial` and `mesh.coregionalized_negbinomial` are now
+    thin presets over `spatial_negbinomial` with **unchanged signatures and
+    sample sites**, so existing code, tests and docs are unaffected.
+  - `mesh.spatial_betabinomial` gains `anisotropic` (still single-feature).
+  - New gating tests (`tests/test_compose.py`): a directional + two-scale fit
+    still recovers both ranges without inventing a spurious direction on
+    isotropic data, and smoothness selection over an anisotropic fit recovers
+    both the rough kernel and the direction.
+
 ### Added
 - **Direction (anisotropy)** — infer whether a feature organises along a host
   axis (proximal–distal gut, crypt–villus, depth into a biofilm) instead of
