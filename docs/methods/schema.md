@@ -94,6 +94,47 @@ are not allowed). MESH requires the same feature_id set in every sample.
 First offending sample: 's0017' (missing ['geneB']; extra []).
 ```
 
+## Optional annotation tables
+
+For {doc}`hierarchical coregionalization <coregionalization_hierarchy>`, MESH
+accepts optional **annotation tables** that map the shared feature catalog onto
+its biological organisation. They are validated by
+{func}`mesh.validate_annotations` and are entirely optional — the flat models
+need none of them.
+
+```{list-table}
+:header-rows: 1
+:widths: 26 18 56
+
+* - Table
+  - Cardinality
+  - Columns
+* - genome
+  - 1 : 1
+  - `feature_id`, `genome_id` (every catalog feature assigned exactly once)
+* - family
+  - n : 1
+  - `feature_id`, `family_id`
+* - trait
+  - n : m
+  - `feature_id`, `trait_id` (a feature may appear in many traits)
+* - completeness
+  - —
+  - `genome_id`, `trait_id`, `completeness` ∈ [0, 1]
+```
+
+```python
+from mesh import validate_annotations
+
+validate_annotations(df, genome=genome, family=family,
+                     trait=trait, completeness=completeness)
+```
+
+Validation is loud in the same style: every `feature_id` must exist in the counts
+catalog, a feature maps to one genome/family, `(feature_id, trait_id)` pairs are
+unique, `completeness` lies in [0, 1], and every genome carrying a member gene of
+a trait has a completeness entry for it.
+
 ## Why a single shared table
 
 Keeping the interface to one validated table makes the statistical method

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Hierarchical coregionalization — genome level** (first implementation phase
+  of the design doc). The genome is modelled as an **entity**: each genome gets
+  its own Matérn field with its own range (patch size) and a single positive
+  amplitude, inherited identically by every gene it carries — not a hierarchical
+  intercept.
+  - `mesh.hierarchical_coregionalized_negbinomial` — structured coregionalization
+    where the loadings come from `feature → genome` membership (`genome_index`),
+    with per-genome ranges (no ordering needed — membership pins field identity)
+    and `HalfNormal` amplitudes (no per-field sign symmetry).
+  - `mesh.hierarchical_counts_arrays` / `mesh.hierarchical_genome_order` — build
+    `coords/counts/log_offset/genome_index/n_genomes` from a counts table plus a
+    genome annotation table.
+  - `mesh.simulate_hierarchical_genomes` — known-truth generator (per-genome
+    ranges + `feature → genome` table).
+  - Gating test (`tests/test_hierarchical.py`): two genomes at well-separated
+    ranges, each patch size recovered inside its 95% interval.
+- **Design doc: hierarchical coregionalization** (`docs/methods/coregionalization_hierarchy.md`)
+  — specifies, ahead of implementation, how the flat coregionalization loadings
+  become a *structured* matrix built from biological membership: genomes (each an
+  entity with its own spatial field, not a grouping level), gene families (residual
+  cross-genome field) and traits (KEGG modules / MetaCyc pathways / BGCs, gated by
+  genome-inferred completeness). Wired into the methods index and roadmap.
+
 ### Changed
 - **Composable field core** — the architecture axes are no longer separate,
   mutually exclusive models. A shared field builder now lets number of scales,

@@ -37,6 +37,7 @@ __all__ = [
     "spatial_negbinomial",
     "anisotropic_negbinomial",
     "coregionalized_negbinomial",
+    "hierarchical_coregionalized_negbinomial",
 ]
 
 # Default weakly-informative range prior, (loc, scale) of a LogNormal in
@@ -584,6 +585,144 @@ def coregionalized_negbinomial(
         loadings_scale=loadings_scale,
         jitter=jitter,
     )
+
+
+def _sample_genome_latent(
+    coords: Array,
+    *,
+    genome_index: Array,
+    n_genomes: int,
+    nu: float,
+    range_prior: tuple[float, float],
+    eta_scale: float,
+    jitter: float,
+) -> Array:
+    r"""Latent for the **genome level** of hierarchical coregionalization.
+
+    Each genome is an *entity*, not a grouping level: one Matern field
+    :math:`f_g` with its **own range** (patch size) and a **single positive
+    amplitude** :math:`\eta_g`, inherited *identically* by every gene the genome
+    carries. Genes map to genomes through ``genome_index`` (length
+    ``n_features``); the returned latent is ``eta_g f_g`` broadcast to each gene.
+
+    Two consequences of the membership structure make this cleaner than the flat
+    LMC (:func:`_sample_field_latent`):
+
+    * **No ordered ranges.** Each field loads on a *disjoint* set of genes, so
+      field identity is pinned by membership -- there is no label-switching to
+      break, and each genome keeps its own free range.
+    * **No per-field sign symmetry.** ``eta_g >= 0`` (``HalfNormal``), so a
+      field cannot flip sign against its loading the way a signed loading column
+      can in the flat model.
+
+    Copy number and gene length are **mean** effects (a constant multiplier is an
+    additive shift in the log link) carried by the intercept and offset, *not*
+    the amplitude -- so all genes of a genome share one ``eta_g``. (For DNA
+    abundance; metatranscriptomics would make this a per-gene multiplier.)
+    """
+    loc, scale = range_prior
+    ranges = numpyro.sample(
+        "range", dist.LogNormal(loc, scale).expand([n_genomes]).to_event(1)
+    )
+    # Bound each range at the sampling extent (same rationale as the flat LMC): a
+    # range beyond the farthest pair flattens to a constant the intercepts absorb.
+    extent = jnp.max(pairwise_distances(coords))
+    log_overshoot = jnp.clip(jnp.log(ranges) - jnp.log(extent), min=0.0)
+    numpyro.factor("range_extent", -0.5 * jnp.sum((log_overshoot / 0.1) ** 2))
+
+    eta = numpyro.sample(
+        "eta", dist.HalfNormal(eta_scale).expand([n_genomes]).to_event(1)
+    )
+    fields = [
+        gp_field(f"genome{k}", coords, ranges[k], eta[k], nu=nu, jitter=jitter)
+        for k in range(n_genomes)
+    ]
+    field_mat = jnp.stack(fields, axis=0)  # (n_genomes, n)
+    return field_mat[genome_index]  # (n_features, n): each gene inherits its genome
+
+
+def hierarchical_coregionalized_negbinomial(
+    coords: Array,
+    counts: Array,
+    log_offset: Array,
+    genome_index: Array,
+    *,
+    n_genomes: int,
+    range_prior: tuple[float, float] = DEFAULT_RANGE_PRIOR,
+    eta_scale: float = 1.0,
+    nu: float = 1.5,
+    jitter: float = 1e-6,
+) -> None:
+    r"""Hierarchical coregionalization, **genome level** (negative-binomial).
+
+    The structured counterpart of :func:`coregionalized_negbinomial`: instead of
+    a free feature x field loadings matrix, the loadings are **built from
+    biological membership**. Every gene inherits the spatial field of the
+    **genome** that carries it, with one amplitude per genome:
+
+    .. math::
+
+        \log \mu_{ji} = \beta_j + \text{log\_offset}_{ji}
+                        + \eta_{g(j)}\, f_{g(j)}(\mathbf{x}_i),
+
+    where ``g(j)`` is the genome of feature ``j`` (``genome_index[j]``) and each
+    :math:`f_g` is a unit-variance Matern field at its own range. This is the
+    *genome as an entity* seed (see
+    :doc:`../methods/coregionalization_hierarchy`): the headline output is a
+    **patch size per genome** (where each organism lives) with credible
+    intervals; later milestones add gene-family and trait fields as residuals on
+    top of this.
+
+    Parameters
+    ----------
+    coords : Array
+        ``(n, 2)`` coordinates in microns (shared across features).
+    counts : Array
+        Observed integer counts, shape ``(J, n)`` -- one row per feature (gene),
+        in the feature order of :func:`mesh.hierarchical_counts_arrays`.
+    log_offset : Array
+        Per-sample log offset ``log(depth) + log(length)``, shape ``(J, n)`` (or
+        ``(n,)``, broadcast across features).
+    genome_index : Array
+        Integer genome code per feature, shape ``(J,)`` with values in
+        ``[0, n_genomes)`` -- the ``feature -> genome`` (1:1) membership.
+    n_genomes : int
+        Number of distinct genomes (static; from
+        :func:`mesh.hierarchical_counts_arrays`).
+    range_prior : tuple of float, optional
+        ``(loc, scale)`` of the per-genome LogNormal range prior, in log-microns.
+    eta_scale : float, optional
+        Scale of the ``HalfNormal`` prior on each genome's field amplitude.
+    nu : float, optional
+        Matern smoothness (boundary sharpness), one of
+        :data:`mesh.kernels.MATERN_NU`. Default ``1.5``.
+    jitter : float, optional
+        Diagonal jitter for Cholesky stability.
+    """
+    counts = jnp.asarray(counts)
+    if counts.ndim != 2:
+        raise ValueError(
+            "hierarchical_coregionalized_negbinomial expects multi-feature "
+            f"counts of shape (J, n); got ndim={counts.ndim}."
+        )
+    n_features = counts.shape[0]
+    genome_index = jnp.asarray(genome_index)
+
+    concentration = numpyro.sample("concentration", dist.Gamma(2.0, 0.1))
+    latent = _sample_genome_latent(
+        coords,
+        genome_index=genome_index,
+        n_genomes=n_genomes,
+        nu=nu,
+        range_prior=range_prior,
+        eta_scale=eta_scale,
+        jitter=jitter,
+    )
+    intercept = numpyro.sample(
+        "intercept", dist.Normal(0.0, 25.0).expand([n_features]).to_event(1)
+    )
+    mu = jnp.exp(intercept[:, None] + log_offset + latent)
+    numpyro.sample("obs", dist.NegativeBinomial2(mu, concentration), obs=counts)
 
 
 def _sigmoid(x: Array) -> Array:

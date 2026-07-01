@@ -29,6 +29,8 @@ __all__ = [
     "allele_arrays",
     "coregion_counts_arrays",
     "coregion_feature_order",
+    "hierarchical_counts_arrays",
+    "hierarchical_genome_order",
     "nu_label",
     "compare_smoothness",
 ]
@@ -304,6 +306,57 @@ def coregion_feature_order(df: pd.DataFrame) -> list[str]:
     posterior loading row back to its feature.
     """
     return sorted(df["feature_id"].unique())
+
+
+def hierarchical_genome_order(genome: pd.DataFrame) -> list[str]:
+    """Return the genome_id order used by :func:`hierarchical_counts_arrays`.
+
+    The hierarchical model's per-genome ``range``/``eta`` rows follow this order,
+    so use it to map a posterior genome index back to its ``genome_id``.
+    """
+    return sorted(genome["genome_id"].unique())
+
+
+def hierarchical_counts_arrays(
+    df: pd.DataFrame, genome: pd.DataFrame, *, validate: bool = True
+) -> dict[str, np.ndarray]:
+    """Build arrays for :func:`mesh.hierarchical_coregionalized_negbinomial`.
+
+    Extends :func:`coregion_counts_arrays` with the ``feature -> genome`` (1:1)
+    membership: a ``genome_index`` aligned to the sorted-``feature_id`` rows of
+    ``counts``, plus ``n_genomes``. Genome codes follow sorted ``genome_id``
+    order (see :func:`hierarchical_genome_order`), so ``range[k]``/``eta[k]`` in
+    the posterior correspond to the ``k``-th genome in that order.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Validated multi-feature counts table (shared catalog across samples).
+    genome : pandas.DataFrame
+        ``feature_id, genome_id`` annotation covering every catalog feature.
+    validate : bool
+        Whether to run :func:`mesh.validate_annotations` (which also validates
+        ``df``) first.
+
+    Returns
+    -------
+    dict
+        ``coords`` ``(n, 2)``, ``counts`` ``(J, n)``, ``log_offset`` ``(J, n)``,
+        ``genome_index`` ``(J,)`` and ``n_genomes`` (int), ready to splat into
+        the model.
+    """
+    if validate:
+        _schema.validate_annotations(df, genome=genome)
+    arrays = coregion_counts_arrays(df, validate=False)
+    features = coregion_feature_order(df)
+    genome_ids = hierarchical_genome_order(genome)
+    code = {g: i for i, g in enumerate(genome_ids)}
+    feature_genome = genome.set_index("feature_id")["genome_id"]
+    arrays["genome_index"] = np.array(
+        [code[feature_genome[f]] for f in features], dtype=np.int64
+    )
+    arrays["n_genomes"] = len(genome_ids)
+    return arrays
 
 
 def nu_label(nu: float) -> str:

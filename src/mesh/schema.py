@@ -28,7 +28,17 @@ from __future__ import annotations
 import pandas as pd
 from pandas.api import types as ptypes
 
-__all__ = ["SchemaError", "REQUIRED_COLUMNS", "ALLELE_COLUMNS", "validate_table"]
+__all__ = [
+    "SchemaError",
+    "REQUIRED_COLUMNS",
+    "ALLELE_COLUMNS",
+    "GENOME_COLUMNS",
+    "FAMILY_COLUMNS",
+    "TRAIT_COLUMNS",
+    "COMPLETENESS_COLUMNS",
+    "validate_table",
+    "validate_annotations",
+]
 
 REQUIRED_COLUMNS: list[str] = [
     "feature_id",
@@ -40,6 +50,16 @@ REQUIRED_COLUMNS: list[str] = [
     "length",
 ]
 ALLELE_COLUMNS: list[str] = ["ref", "alt"]
+
+# --- Hierarchical-coregionalization annotation tables (optional). ---
+# See docs/methods/coregionalization_hierarchy.md. Membership is many-to-many
+# (a gene belongs to one genome and one family but contributes to many traits),
+# so it cannot live in columns of the counts table -- it is carried in these
+# side tables, keyed on feature_id (or genome_id/trait_id for completeness).
+GENOME_COLUMNS: list[str] = ["feature_id", "genome_id"]  # 1:1
+FAMILY_COLUMNS: list[str] = ["feature_id", "family_id"]  # n:1
+TRAIT_COLUMNS: list[str] = ["feature_id", "trait_id"]  # n:m
+COMPLETENESS_COLUMNS: list[str] = ["genome_id", "trait_id", "completeness"]
 
 _COORD_COLUMNS = ["x", "y"]
 _NUMERIC_COLUMNS = ["x", "y", "count", "depth", "length"]
@@ -179,6 +199,144 @@ def _check_shared_catalog(df: pd.DataFrame) -> None:
             f"sample. First offending sample: '{example}' "
             f"(missing {missing[:5]}; extra {extra[:5]})."
         )
+
+
+def validate_annotations(
+    df: pd.DataFrame,
+    *,
+    genome: pd.DataFrame | None = None,
+    family: pd.DataFrame | None = None,
+    trait: pd.DataFrame | None = None,
+    completeness: pd.DataFrame | None = None,
+    validate: bool = True,
+) -> None:
+    """Validate the optional hierarchical-coregionalization annotation tables.
+
+    These side tables map the shared feature catalog onto its biological
+    organisation (see :doc:`../methods/coregionalization_hierarchy`). All are
+    optional; passing ``None`` skips that table. Every ``feature_id`` referenced
+    must exist in the counts catalog of ``df``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The counts table whose shared feature catalog the annotations key into.
+    genome : pandas.DataFrame, optional
+        ``feature_id, genome_id`` -- each feature carried by exactly one genome
+        (1:1). Every catalog feature must appear exactly once.
+    family : pandas.DataFrame, optional
+        ``feature_id, family_id`` -- each feature in one gene family (n:1).
+    trait : pandas.DataFrame, optional
+        ``feature_id, trait_id`` -- feature-to-trait membership (n:m); a feature
+        may appear in many traits, but each ``(feature_id, trait_id)`` pair once.
+    completeness : pandas.DataFrame, optional
+        ``genome_id, trait_id, completeness`` -- genome-inferred trait
+        completeness in ``[0, 1]``, one row per ``(genome_id, trait_id)``. When
+        ``genome`` and ``trait`` are both given, every genome that carries a
+        member gene of a trait must have a completeness row for that trait.
+
+    Raises
+    ------
+    SchemaError
+        On any contract violation, with an actionable message.
+    """
+    if validate:
+        validate_table(df)
+    catalog = frozenset(df["feature_id"].unique())
+
+    if genome is not None:
+        _check_columns_present(genome, GENOME_COLUMNS)
+        _check_feature_refs(genome, catalog, "genome")
+        _check_unique_feature(genome, "genome")
+        _check_covers_catalog(genome, catalog, "genome")
+    if family is not None:
+        _check_columns_present(family, FAMILY_COLUMNS)
+        _check_feature_refs(family, catalog, "family")
+        _check_unique_feature(family, "family")
+    if trait is not None:
+        _check_columns_present(trait, TRAIT_COLUMNS)
+        _check_feature_refs(trait, catalog, "trait")
+        if trait.duplicated(TRAIT_COLUMNS).any():
+            raise SchemaError(
+                "Duplicate (feature_id, trait_id) rows in the trait table; each "
+                "feature-to-trait membership must appear exactly once."
+            )
+    if completeness is not None:
+        _check_columns_present(completeness, COMPLETENESS_COLUMNS)
+        _check_completeness(completeness, genome=genome, trait=trait)
+
+
+def _check_feature_refs(
+    ann: pd.DataFrame, catalog: frozenset[str], name: str
+) -> None:
+    unknown = sorted(set(ann["feature_id"].unique()) - catalog)
+    if unknown:
+        raise SchemaError(
+            f"The {name} annotation references feature_id(s) absent from the "
+            f"counts catalog: {unknown[:5]}. Annotations must key into the "
+            "shared feature catalog."
+        )
+
+
+def _check_unique_feature(ann: pd.DataFrame, name: str) -> None:
+    if ann["feature_id"].duplicated().any():
+        dup = sorted(ann.loc[ann["feature_id"].duplicated(), "feature_id"].unique())
+        raise SchemaError(
+            f"The {name} annotation maps feature_id(s) more than once: "
+            f"{dup[:5]}. Each feature belongs to exactly one {name}."
+        )
+
+
+def _check_covers_catalog(
+    ann: pd.DataFrame, catalog: frozenset[str], name: str
+) -> None:
+    missing = sorted(catalog - set(ann["feature_id"].unique()))
+    if missing:
+        raise SchemaError(
+            f"The {name} annotation is missing {len(missing)} catalog "
+            f"feature(s), e.g. {missing[:5]}. Every feature must be assigned a "
+            f"{name}."
+        )
+
+
+def _check_completeness(
+    completeness: pd.DataFrame,
+    *,
+    genome: pd.DataFrame | None,
+    trait: pd.DataFrame | None,
+) -> None:
+    if not ptypes.is_numeric_dtype(completeness["completeness"]):
+        raise SchemaError(
+            "Column 'completeness' must be numeric, got dtype "
+            f"'{completeness['completeness'].dtype}'."
+        )
+    vals = completeness["completeness"]
+    if vals.isna().any() or not _is_finite(vals):
+        raise SchemaError("Column 'completeness' has missing/non-finite values.")
+    if (vals < 0).any() or (vals > 1).any():
+        raise SchemaError("Column 'completeness' must lie in [0, 1].")
+    if completeness.duplicated(["genome_id", "trait_id"]).any():
+        raise SchemaError(
+            "Duplicate (genome_id, trait_id) rows in the completeness table; "
+            "each genome-trait completeness must appear exactly once."
+        )
+    # Referential integrity: every genome carrying a member gene of a trait needs
+    # a completeness entry for that trait.
+    if genome is not None and trait is not None:
+        carried = trait.merge(genome, on="feature_id", how="inner")[
+            ["genome_id", "trait_id"]
+        ].drop_duplicates()
+        have = completeness.set_index(["genome_id", "trait_id"]).index
+        missing = carried[~carried.set_index(["genome_id", "trait_id"]).index.isin(have)]
+        if not missing.empty:
+            first = missing.iloc[0]
+            raise SchemaError(
+                "The completeness table is missing genome-trait pair(s) that the "
+                "incidence tables require, e.g. genome "
+                f"'{first['genome_id']}' x trait '{first['trait_id']}' "
+                f"({len(missing)} missing). Every genome carrying a member gene "
+                "of a trait needs a completeness entry."
+            )
 
 
 def _check_allele_consistency(df: pd.DataFrame) -> None:

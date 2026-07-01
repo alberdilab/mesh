@@ -52,16 +52,20 @@ output interpretable and the inference honest at the scale of data MESH targets:
 The single-feature models (M0/M1) fit **one** Matérn field with **one** range.
 The **coregionalization** model (M1+) extends this to several features over
 **multiple ordered fields**, separating co-existing scales
-({func}`mesh.coregionalized_negbinomial`). Still ahead: a clean multi-scale
-variance partition of a single feature, crossed organizational groupings,
-multi-host hierarchical GPs and multi-omics — later milestones (see the
-[roadmap](../roadmap.md)), intentionally **not** present yet. There is no
-SPDE/sparse/variational-GP machinery and no GPU-specific code.
+({func}`mesh.coregionalized_negbinomial`). The next step turns that *flat*
+loadings matrix into a **structured** one that follows the biological
+organisation of the features — genomes, gene families and traits (modules /
+pathways / BGCs); it is specified in {doc}`coregionalization_hierarchy` ahead of
+implementation. Still ahead beyond that: multi-host hierarchical GPs and
+multi-omics — later milestones (see the [roadmap](../roadmap.md)), intentionally
+**not** present yet. There is no SPDE/sparse/variational-GP machinery and no
+GPU-specific code.
 
 ```{toctree}
 :hidden:
 
 model
+coregionalization_hierarchy
 inference
 schema
 simulation

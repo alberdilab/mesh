@@ -25,6 +25,7 @@ __all__ = [
     "simulate_counts",
     "simulate_anisotropic",
     "simulate_coregionalized",
+    "simulate_hierarchical_genomes",
 ]
 
 
@@ -544,6 +545,136 @@ def simulate_coregionalized(
     truth = {
         "ranges": tuple(float(r) for r in ranges),
         "loadings": loadings,
+        "feature_ids": feature_ids,
+        "intercept": intercept,
+        "concentration": concentration,
+        "domain": domain,
+    }
+    return SimulatedData(table=table, truth=truth, coords=coords, field=field_mat)
+
+
+def simulate_hierarchical_genomes(
+    n_samples: int = 220,
+    genome_ranges: tuple[float, ...] = (90.0, 300.0),
+    genome_etas: tuple[float, ...] | None = None,
+    genes_per_genome: tuple[int, ...] | None = None,
+    domain: float = 800.0,
+    baseline_rate: float = 5e-8,
+    concentration: float = 10.0,
+    length: int = 1000,
+    mean_depth: float = 1e6,
+    depth_log_sd: float = 0.3,
+    seed: int = 0,
+) -> SimulatedData:
+    """Simulate a genome-structured counts table (hierarchical coregionalization).
+
+    Known-truth generator for
+    :func:`mesh.hierarchical_coregionalized_negbinomial`. Each **genome** gets its
+    own unit-variance Matern field at ``genome_ranges[k]`` scaled by amplitude
+    ``genome_etas[k]``; every gene the genome carries inherits that field
+    **identically** (the genome-as-entity assumption). Counts are negative-binomial
+    with the standard depth/length offset. The truth is *each genome's patch size*
+    and the ``feature -> genome`` membership.
+
+    Parameters
+    ----------
+    n_samples : int
+        Number of spatial microsamples (shared across features).
+    genome_ranges : tuple of float
+        True Matern range (patch size, microns) per genome.
+    genome_etas : tuple of float, optional
+        Field amplitude per genome. Defaults to ``1.2`` for every genome.
+    genes_per_genome : tuple of int, optional
+        Number of genes carried by each genome. Defaults to ``3`` per genome.
+    domain : float
+        Side length of the square sampling domain, in microns.
+    baseline_rate : float
+        Expected count per (read x bp); sets the intercept ``log(baseline_rate)``.
+    concentration : float
+        NB2 concentration (dispersion); larger means closer to Poisson.
+    length : int
+        Feature length (bp), entering the offset.
+    mean_depth : float
+        Geometric-mean per-sample sequencing depth (reads).
+    depth_log_sd : float
+        Log-normal scatter of per-sample depth.
+    seed : int
+        Random seed.
+
+    Returns
+    -------
+    SimulatedData
+        ``table`` is the long-format counts table. ``truth`` holds
+        ``genome_ranges``, ``genome_etas``, the ``genome`` annotation
+        (``feature_id, genome_id``) DataFrame and the ``genome_index`` per
+        feature. ``field`` is the ``(n_genomes, n)`` matrix of genome fields.
+    """
+    n_genomes = len(genome_ranges)
+    if genome_etas is None:
+        genome_etas = tuple(1.2 for _ in range(n_genomes))
+    if genes_per_genome is None:
+        genes_per_genome = tuple(3 for _ in range(n_genomes))
+    if not len(genome_etas) == len(genes_per_genome) == n_genomes:
+        raise ValueError(
+            "genome_ranges, genome_etas and genes_per_genome must have the same "
+            "length (one entry per genome)."
+        )
+
+    rng = np.random.default_rng(seed)
+    coords = _coords(n_samples, domain, rng)
+
+    # One field per genome; (n_genomes, n).
+    field_mat = np.stack(
+        [
+            draw_field(coords, r, e, rng)
+            for r, e in zip(genome_ranges, genome_etas, strict=True)
+        ],
+        axis=0,
+    )
+
+    depth = rng.lognormal(mean=np.log(mean_depth), sigma=depth_log_sd, size=n_samples)
+    intercept = float(np.log(baseline_rate))
+    log_offset = np.log(depth) + np.log(length)  # (n,)
+
+    sample_ids = [f"s{i:04d}" for i in range(n_samples)]
+    genome_ids_per_gene: list[str] = []
+    feature_ids: list[str] = []
+    frames = []
+    gene = 0
+    for k, n_genes in enumerate(genes_per_genome):
+        genome_id = f"genome{k}"
+        for _ in range(n_genes):
+            feature_id = f"feat{gene:03d}"
+            latent = field_mat[k]  # every gene of genome k inherits its field
+            mu = np.exp(intercept + log_offset + latent)
+            prob = concentration / (concentration + mu)
+            counts = rng.negative_binomial(concentration, prob)
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "feature_id": feature_id,
+                        "sample_id": sample_ids,
+                        "x": coords[:, 0],
+                        "y": coords[:, 1],
+                        "count": counts.astype(np.int64),
+                        "depth": depth.astype(np.float64),
+                        "length": np.full(n_samples, length, dtype=np.int64),
+                    }
+                )
+            )
+            feature_ids.append(feature_id)
+            genome_ids_per_gene.append(genome_id)
+            gene += 1
+    table = pd.concat(frames, ignore_index=True)
+
+    genome_table = pd.DataFrame(
+        {"feature_id": feature_ids, "genome_id": genome_ids_per_gene}
+    )
+    truth = {
+        "genome_ranges": tuple(float(r) for r in genome_ranges),
+        "genome_etas": tuple(float(e) for e in genome_etas),
+        "genome": genome_table,
+        "genome_index": np.repeat(np.arange(n_genomes), genes_per_genome),
         "feature_ids": feature_ids,
         "intercept": intercept,
         "concentration": concentration,

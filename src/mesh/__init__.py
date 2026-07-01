@@ -22,6 +22,8 @@ from .fit import (
     enable_parallel_chains,
     fit_model,
     get_range_posterior,
+    hierarchical_counts_arrays,
+    hierarchical_genome_order,
     nu_label,
 )
 from .kernels import (
@@ -38,6 +40,7 @@ from .model import (
     coregionalized_negbinomial,
     gp_field,
     gp_field_anisotropic,
+    hierarchical_coregionalized_negbinomial,
     spatial_betabinomial,
     spatial_negbinomial,
 )
@@ -53,7 +56,7 @@ from .plots import (
     plot_variance_partition,
     posterior_field_mean,
 )
-from .schema import SchemaError, validate_table
+from .schema import SchemaError, validate_annotations, validate_table
 from .simulate import (
     SimulatedData,
     draw_field_anisotropic,
@@ -61,6 +64,7 @@ from .simulate import (
     simulate_anisotropic,
     simulate_coregionalized,
     simulate_counts,
+    simulate_hierarchical_genomes,
 )
 from .summaries import (
     decompose_variance,
@@ -89,8 +93,10 @@ __all__ = [
     "simulate_counts",
     "simulate_anisotropic",
     "simulate_coregionalized",
+    "simulate_hierarchical_genomes",
     "draw_field_anisotropic",
     # schema
+    "validate_annotations",
     "SchemaError",
     "validate_table",
     # model
@@ -100,6 +106,7 @@ __all__ = [
     "spatial_negbinomial",
     "anisotropic_negbinomial",
     "coregionalized_negbinomial",
+    "hierarchical_coregionalized_negbinomial",
     # fit
     "fit_model",
     "enable_parallel_chains",
@@ -108,6 +115,8 @@ __all__ = [
     "allele_arrays",
     "coregion_counts_arrays",
     "coregion_feature_order",
+    "hierarchical_counts_arrays",
+    "hierarchical_genome_order",
     "nu_label",
     "compare_smoothness",
     # summaries

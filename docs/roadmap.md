@@ -124,10 +124,18 @@ the cheapest to add.
 - **Multi-scale fields** — *is the architecture hierarchical?* A fine mosaic
   nested inside broad zones — a variance partition of each feature across several
   spatial scales (the clean version of the single-fit determinism index above).
-- **Crossed organizational × spatial hierarchy** — *does function track the
-  organism, or move independently of it?* Gene-centric grouping (function,
-  operon/MGE, taxon of residence) crossed with spatial scale; a function whose
-  patch crosses taxa is modular or horizontally transferred.
+- **Hierarchical coregionalization (genomes × gene families × traits)** — *does
+  function track the organism, or move independently of it, and is a multi-gene
+  capacity realised in one genome or assembled across the community?* Turns the
+  flat coregionalization loadings into a **structured** matrix built from
+  biological membership: each **genome** carries its own spatial field (organism
+  as an entity, not a grouping level), **gene families** get a residual
+  cross-genome field, and **traits** (KEGG modules, MetaCyc pathways, BGCs) — sets
+  of co-functioning gene families, gated by genome-inferred completeness — get
+  their own fields. Each level reports a patch size, a coregionalization matrix
+  and a within-genome-vs-distributed variance partition. Fully specified in
+  {doc}`methods/coregionalization_hierarchy`; needs annotation/membership tables
+  added to the {doc}`schema <methods/schema>`.
 - **Multi-host hierarchical GP** — *is spatial architecture a reproducible host
   trait?* Partial pooling of patch sizes across hosts / individuals, and a test
   of whether perturbation or disease coarsens or fragments the architecture.
